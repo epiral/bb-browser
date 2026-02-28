@@ -45,7 +45,6 @@ export class SSEClient {
           Accept: 'text/event-stream',
           'Cache-Control': 'no-cache',
         },
-        keepalive: true,
       });
 
       if (!response.ok) {
