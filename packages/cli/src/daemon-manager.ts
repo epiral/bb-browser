@@ -9,7 +9,7 @@ import { dirname, resolve } from "node:path";
 import { DAEMON_BASE_URL } from "@bb-browser/shared";
 
 /** 获取 daemon dist 路径 */
-function getDaemonPath(): string {
+export function getDaemonPath(): string {
   const currentFile = fileURLToPath(import.meta.url);
   const currentDir = dirname(currentFile);
   
