@@ -4,7 +4,8 @@
   "description": "AI Agent browser automation CLI - control Chrome with user's login state",
   "type": "module",
   "bin": {
-    "bb-browser": "./dist/cli.js"
+    "bb-browser": "./dist/cli.js",
+    "bb-browser-mcp": "./dist/mcp.js"
   },
   "main": "./dist/cli.js",
   "files": [

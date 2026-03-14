@@ -90,6 +90,18 @@ export interface Request {
   errorsCommand?: "get" | "clear";
   /** trace 子命令：start, stop, status */
   traceCommand?: "start" | "stop" | "status";
+  /** 按键名（press 命令使用） */
+  key?: string;
+  /** 修饰键列表（press 命令使用） */
+  modifiers?: string[];
+  /** 滚动方向（scroll 命令使用） */
+  direction?: string;
+  /** 滚动距离（scroll 命令使用） */
+  pixels?: number;
+  /** 等待类型（wait 命令使用） */
+  waitType?: string;
+  /** 等待毫秒数（wait 命令使用） */
+  ms?: number;
 }
 
 /** 元素引用信息 */
@@ -228,6 +240,8 @@ export interface ResponseData {
   value?: string;
   /** 截图路径（screenshot 操作返回） */
   screenshotPath?: string;
+  /** 截图 data URL（screenshot 操作返回） */
+  dataUrl?: string;
   /** eval 执行结果 */
   result?: unknown;
   /** 标签页列表（tab_list 命令返回） */
