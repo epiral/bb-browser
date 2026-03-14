@@ -51,85 +51,79 @@ bb-browser - AI Agent 浏览器自动化工具
 用法：
   bb-browser <command> [options]
 
-命令：
-  open <url> [--tab] 打开指定 URL（默认新 tab，--tab current 当前 tab）
-  snapshot          获取当前页面快照（默认完整树）
-  click <ref>       点击元素（ref 如 @5 或 5）
-  hover <ref>       悬停在元素上
-  fill <ref> <text> 填充输入框（清空后填入）
-  type <ref> <text> 逐字符输入（不清空）
-  check <ref>       勾选复选框
-  uncheck <ref>     取消勾选复选框
-  select <ref> <val> 下拉框选择
-  eval "<js>"       执行 JavaScript
-  close             关闭当前标签页
-  get text <ref>    获取元素文本
-  get url           获取当前页面 URL
-  get title         获取页面标题
-  screenshot [path] 截取当前页面
-  wait <ms|@ref>    等待时间或元素
-  press <key>       发送键盘按键（如 Enter, Tab, Control+a）
-  scroll <dir> [px] 滚动页面（up/down/left/right，默认 300px）
-  daemon            前台启动 Daemon
-  start             前台启动 Daemon（daemon 的别名）
-  stop              停止 Daemon
-  status            查看 Daemon 状态
-  reload            重载扩展（需要 CDP 模式）
-  back              后退
-  forward           前进
-  refresh           刷新页面
-  tab               列出所有标签页
-  tab new [url]     新建标签页
-  tab <n>           切换到第 n 个标签页（按 index）
-  tab select --id <id>  切换到指定 tabId 的标签页
-  tab close [n]     关闭标签页（按 index，默认当前）
-  tab close --id <id>   关闭指定 tabId 的标签页
-  frame <selector>  切换到指定 iframe
-  frame main        返回主 frame
-  dialog accept [text]  接受对话框（alert/confirm/prompt）
-  dialog dismiss    拒绝/关闭对话框
+网站 CLI 化（把任何网站变成命令行 API）：
+  site list            列出所有可用 adapter（50+）
+  site search <q>      搜索 adapter
+  site <name> [args]   运行 adapter（如 site reddit/thread <url>）
+  site update          更新社区 adapter 库
+  guide                如何创建新 adapter（开发指南）
+
+  示例：
+    bb-browser site twitter/search "claude code"
+    bb-browser site reddit/thread <url>
+    bb-browser site github/pr-create owner/repo --title "feat: ..."
+
+页面导航：
+  open <url> [--tab]   打开指定 URL（默认新 tab，--tab current 当前 tab）
+  back / forward       后退 / 前进
+  refresh              刷新页面
+  close                关闭当前标签页
+  tab                  列出所有标签页
+  tab new [url]        新建标签页
+  tab <n>              切换到第 n 个标签页（按 index）
+  tab select --id <id> 切换到指定 tabId 的标签页
+  tab close [n|--id <id>]  关闭标签页
+  frame <selector>     切换到指定 iframe
+  frame main           返回主 frame
+  wait <ms|@ref>       等待时间或元素
+
+页面交互：
+  click <ref>          点击元素（ref 如 @5 或 5）
+  hover <ref>          悬停在元素上
+  fill <ref> <text>    填充输入框（清空后填入）
+  type <ref> <text>    逐字符输入（不清空）
+  check <ref>          勾选复选框
+  uncheck <ref>        取消勾选复选框
+  select <ref> <val>   下拉框选择
+  press <key>          发送键盘按键（如 Enter, Tab, Control+a）
+  scroll <dir> [px]    滚动页面（up/down/left/right，默认 300px）
+  dialog accept [text] 接受对话框
+  dialog dismiss       拒绝/关闭对话框
+
+页面信息：
+  snapshot             获取当前页面快照（默认完整树）
+  get text <ref>       获取元素文本
+  get url              获取当前页面 URL
+  get title            获取页面标题
+  screenshot [path]    截取当前页面
+  eval "<js>"          执行 JavaScript
+  fetch <url>          在浏览器上下文中 fetch（自动同源路由，带登录态）
+
+网络与调试：
   network requests [filter]  查看网络请求
   network route <url> [--abort|--body <json>]  拦截请求
-  network unroute [url]  移除拦截规则
-  network clear     清空请求记录
-  console           查看控制台消息
-  console --clear   清空控制台
-  errors            查看 JS 错误
-  errors --clear    清空错误记录
-  trace start       开始录制用户操作
-  trace stop        停止录制，输出事件列表
-  trace status      查看录制状态
-  fetch <url>       在浏览器上下文中 fetch（自动同源路由，带登录态）
-  site              网站 CLI 化 — 管理和运行 site adapter
-  site list         列出所有可用 adapter
-  site search <q>   搜索 adapter
-  site <name>       运行 adapter（如 site reddit/thread <url>）
-  site update       更新社区 adapter 库
-  guide             如何把任何网站变成 site adapter（开发指南）
+  network unroute [url]      移除拦截规则
+  network clear              清空请求记录
+  console [--clear]          查看/清空控制台消息
+  errors [--clear]           查看/清空 JS 错误
+  trace start|stop|status    录制用户操作
+
+Daemon 管理：
+  daemon / start       前台启动 Daemon
+  stop                 停止 Daemon
+  status               查看 Daemon 状态
+  reload               重载扩展（需要 CDP 模式）
 
 选项：
-  --json          以 JSON 格式输出
-  -i, --interactive 只输出可交互元素（snapshot 命令）
-  -c, --compact   移除空结构节点（snapshot 命令）
-  -d, --depth <n> 限制树深度（snapshot 命令）
+  --json               以 JSON 格式输出
+  -i, --interactive    只输出可交互元素（snapshot 命令）
+  -c, --compact        移除空结构节点（snapshot 命令）
+  -d, --depth <n>      限制树深度（snapshot 命令）
   -s, --selector <sel> 限定 CSS 选择器范围（snapshot 命令）
-  --tab <tabId>   指定操作的标签页 ID
-  --mcp           启动 MCP server（用于 Claude Code / Cursor 等 AI 工具）
-  --help, -h      显示帮助信息
-  --version, -v   显示版本号
-
-示例：
-  bb-browser open https://example.com
-  bb-browser snapshot --json
-  bb-browser click @5
-  bb-browser fill @3 "hello world"
-  bb-browser type @3 "append text"
-  bb-browser get text @5
-  bb-browser get url
-  bb-browser press Enter
-  bb-browser press Control+a
-  bb-browser daemon
-  bb-browser stop
+  --tab <tabId>        指定操作的标签页 ID
+  --mcp                启动 MCP server（用于 Claude Code / Cursor 等 AI 工具）
+  --help, -h           显示帮助信息
+  --version, -v        显示版本号
 `.trim();
 
 interface ParsedArgs {
