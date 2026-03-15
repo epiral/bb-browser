@@ -109,6 +109,19 @@ export async function launchManagedBrowser(port: number = DEFAULT_CDP_PORT): Pro
 
   await mkdir(MANAGED_USER_DATA_DIR, { recursive: true });
 
+  // Set profile name so the Chrome window shows "bb-browser" in the title bar
+  const defaultProfileDir = path.join(MANAGED_USER_DATA_DIR, "Default");
+  const prefsPath = path.join(defaultProfileDir, "Preferences");
+  await mkdir(defaultProfileDir, { recursive: true });
+  try {
+    let prefs: Record<string, unknown> = {};
+    try { prefs = JSON.parse(await readFile(prefsPath, "utf8")); } catch {}
+    if (!(prefs.profile as Record<string, unknown>)?.name || (prefs.profile as Record<string, unknown>).name !== "bb-browser") {
+      prefs.profile = { ...(prefs.profile as Record<string, unknown> || {}), name: "bb-browser" };
+      await writeFile(prefsPath, JSON.stringify(prefs), "utf8");
+    }
+  } catch {}
+
   const args = [
     `--remote-debugging-port=${port}`,
     `--user-data-dir=${MANAGED_USER_DATA_DIR}`,
