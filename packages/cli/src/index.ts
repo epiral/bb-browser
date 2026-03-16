@@ -15,8 +15,6 @@ import { screenshotCommand } from "./commands/screenshot.js";
 import { waitCommand } from "./commands/wait.js";
 import { pressCommand } from "./commands/press.js";
 import { scrollCommand } from "./commands/scroll.js";
-import { statusCommand } from "./commands/daemon.js";
-import { reloadCommand } from "./commands/reload.js";
 import { backCommand, forwardCommand, refreshCommand } from "./commands/nav.js";
 import { checkCommand, uncheckCommand } from "./commands/check.js";
 import { selectCommand } from "./commands/select.js";
@@ -407,27 +405,6 @@ async function main(): Promise<void> {
       }
 
       case "daemon":
-      case "start": {
-        const hostIdx = process.argv.findIndex(a => a === "--host");
-        const host = hostIdx >= 0 ? process.argv[hostIdx + 1] : undefined;
-        await daemonCommand({ json: parsed.flags.json, host });
-        break;
-      }
-
-      case "stop": {
-        await stopCommand({ json: parsed.flags.json });
-        break;
-      }
-
-      case "status": {
-        await statusCommand({ json: parsed.flags.json });
-        break;
-      }
-
-      case "reload": {
-        await reloadCommand({ json: parsed.flags.json });
-        break;
-      }
 
       case "close": {
         await closeCommand({ json: parsed.flags.json, tabId: globalTabId });

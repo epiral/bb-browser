@@ -1,6 +1,6 @@
 {
   "name": "bb-browser",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "description": "Your browser is the API. CLI + MCP server for AI agents to control Chrome with your login state.",
   "type": "module",
   "bin": {
