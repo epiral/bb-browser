@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
 import type { Request, Response, ResponseData, TabInfo, SnapshotData, RefInfo, NetworkRequestInfo, ConsoleMessageInfo, JSErrorInfo, TraceEvent, TraceStatus } from "@bb-browser/shared";
-import { COMMAND_TIMEOUT } from "@bb-browser/shared";
+import { COMMAND_TIMEOUT, DAEMON_BASE_URL } from "@bb-browser/shared";
 import { discoverCdpPort } from "./cdp-discovery.js";
 
 interface CdpTargetInfo {
@@ -864,7 +864,44 @@ export async function ensureCdpConnection(): Promise<void> {
 }
 
 
+/**
+ * 通过 daemon HTTP 发送命令（用于不支持的 CDP 操作）
+ */
+async function sendViaDaemon(request: Request): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const url = new URL('/command', DAEMON_BASE_URL);
+    const options = {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    };
+
+    const req = httpRequest(url, options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const response = JSON.parse(data) as Response;
+          resolve(response);
+        } catch (err) {
+          reject(new Error(`Failed to parse daemon response: ${data}`));
+        }
+      });
+    });
+
+    req.on('error', reject);
+    req.write(JSON.stringify(request));
+    req.end();
+  });
+}
+
 export async function sendCommand(request: Request): Promise<Response> {
+  // Cookies command requires daemon mode (uses extension chrome.debugger API)
+  if (request.action === "cookies") {
+    return await sendViaDaemon(request);
+  }
+
   try {
     await ensureCdpConnection();
     const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("请求超时")), COMMAND_TIMEOUT));
@@ -1109,6 +1146,10 @@ async function dispatchRequest(request: Request): Promise<Response> {
         default:
           return fail(request.id, `Unknown trace subcommand: ${subCommand}`);
       }
+    }
+    case "cookies": {
+      // Cookies command requires daemon mode (uses extension chrome.debugger API)
+      return await sendViaDaemon(request);
     }
     default:
       return fail(request.id, `Action not yet supported in direct CDP mode: ${request.action}`);
