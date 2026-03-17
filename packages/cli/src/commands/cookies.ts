@@ -3,7 +3,6 @@
  */
 
 import { sendCommand } from "../client.js";
-import { ensureDaemonRunning } from "../daemon-manager.js";
 
 interface CookiesOptions {
   json?: boolean;
@@ -15,8 +14,6 @@ export async function cookiesCommand(
   name?: string,
   options: CookiesOptions = {}
 ): Promise<void> {
-  await ensureDaemonRunning();
-
   const response = await sendCommand({
     id: crypto.randomUUID(),
     action: "cookies",
