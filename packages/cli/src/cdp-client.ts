@@ -868,32 +868,42 @@ export async function ensureCdpConnection(): Promise<void> {
  * 通过 daemon HTTP 发送命令（用于不支持的 CDP 操作）
  */
 async function sendViaDaemon(request: Request): Promise<Response> {
-  return new Promise((resolve, reject) => {
-    const url = new URL('/command', DAEMON_BASE_URL);
-    const options = {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    };
+  return Promise.race([
+    new Promise<Response>((resolve, reject) => {
+      const url = new URL('/command', DAEMON_BASE_URL);
+      const options = {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      };
 
-    const req = httpRequest(url, options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        try {
-          const response = JSON.parse(data) as Response;
-          resolve(response);
-        } catch (err) {
-          reject(new Error(`Failed to parse daemon response: ${data}`));
+      const chunks: Buffer[] = [];
+      const req = httpRequest(url, options, (res) => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`Daemon returned ${res.statusCode}`));
+          return;
         }
+        res.on('data', (chunk) => { chunks.push(chunk); });
+        res.on('end', () => {
+          try {
+            const data = Buffer.concat(chunks).toString('utf8');
+            const response = JSON.parse(data) as Response;
+            resolve(response);
+          } catch (err) {
+            reject(new Error(`Failed to parse daemon response: ${err}`));
+          }
+        });
       });
-    });
 
-    req.on('error', reject);
-    req.write(JSON.stringify(request));
-    req.end();
-  });
+      req.on('error', reject);
+      req.write(JSON.stringify(request));
+      req.end();
+    }),
+    new Promise<Response>((_, reject) =>
+      setTimeout(() => reject(new Error('Daemon request timeout')), 30000)
+    ),
+  ]);
 }
 
 export async function sendCommand(request: Request): Promise<Response> {
