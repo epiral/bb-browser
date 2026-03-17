@@ -71,14 +71,18 @@ bb-browser site xueqiu/hot-stock 5 --openclaw --jq '.items[] | {name, changePerc
 
 ClawHub Skill: [bb-browser-openclaw](https://clawhub.ai/yan5xu/bb-browser)
 
-### Chrome 扩展（独立模式）
+### 托管浏览器（独立模式）
 
-不使用 OpenClaw 时（Claude Code MCP、独立 CLI）需要安装扩展：
+不使用 OpenClaw 时（Claude Code MCP、Codex、Cursor、独立 CLI），bb-browser 会自动检测本机已安装的 Chrome 系浏览器，并启动一个受管的 CDP profile，不需要额外安装扩展。
+
+如果你仍然需要旧的 daemon + 扩展模式：
 
 1. 从 [Releases](https://github.com/epiral/bb-browser/releases/latest) 下载 zip
 2. 解压 → `chrome://extensions/` → 开发者模式 → 加载已解压的扩展程序
 
 ### MCP 接入（Claude Code / Cursor）
+
+MCP 和 CLI 现在共用同一套内建 CDP 通路，因此不再依赖旧的扩展链路。
 
 ```json
 {
@@ -185,10 +189,10 @@ bb-browser daemon --host 0.0.0.0      # 监听所有网卡（用于 Tailscale / 
 AI Agent (Claude Code, Codex, Cursor 等)
        │ CLI 或 MCP (stdio)
        ▼
-bb-browser CLI ──HTTP──▶ Daemon ──SSE──▶ Chrome 扩展
-                                              │
-                                              ▼ chrome.debugger (CDP)
-                                         你的真实浏览器
+bb-browser CLI / MCP ──CDP──▶ 受管浏览器（或 OpenClaw 浏览器）
+
+旧的远程链路：
+bb-browser CLI ──HTTP──▶ Daemon ──SSE──▶ Chrome 扩展 ──chrome.debugger──▶ 你的真实浏览器
 ```
 
 ## 许可证

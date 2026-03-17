@@ -1,75 +1,12 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { DAEMON_BASE_URL, COMMAND_TIMEOUT, generateId } from "@bb-browser/shared";
+import { generateId } from "@bb-browser/shared";
 import type { Request, Response } from "@bb-browser/shared";
-import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
 import { z } from "zod";
 
 declare const __BB_BROWSER_VERSION__: string;
-
-const EXT_HINT = [
-  "Chrome extension not connected.",
-  "",
-  "1. Download extension: https://github.com/epiral/bb-browser/releases/latest",
-  "2. Unzip the downloaded file",
-  "3. Open chrome://extensions/ → Enable Developer Mode",
-  "4. Click \"Load unpacked\" → select the unzipped folder",
-].join("\n");
-
-function getDaemonPath(): string {
-  const currentDir = dirname(fileURLToPath(import.meta.url));
-  const sameDirPath = resolve(currentDir, "daemon.js");
-  if (existsSync(sameDirPath)) return sameDirPath;
-  return resolve(currentDir, "../../daemon/dist/index.js");
-}
-
-async function isDaemonRunning(): Promise<boolean> {
-  try {
-    const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), 2000);
-    const res = await fetch(`${DAEMON_BASE_URL}/status`, { signal: controller.signal });
-    clearTimeout(t);
-    return res.ok;
-  } catch { return false; }
-}
-
-async function ensureDaemon(): Promise<void> {
-  if (await isDaemonRunning()) return;
-  const child = spawn(process.execPath, [getDaemonPath()], {
-    detached: true, stdio: "ignore", env: { ...process.env },
-  });
-  child.unref();
-  // wait up to 5s
-  for (let i = 0; i < 25; i++) {
-    await new Promise(r => setTimeout(r, 200));
-    if (await isDaemonRunning()) return;
-  }
-}
-
-async function sendCommand(request: Request): Promise<Response> {
-  await ensureDaemon();
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), COMMAND_TIMEOUT);
-  try {
-    const response = await fetch(`${DAEMON_BASE_URL}/command`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(request),
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-    if (response.status === 503) {
-      return { id: request.id, success: false, error: EXT_HINT };
-    }
-    return (await response.json()) as Response;
-  } catch {
-    clearTimeout(timeoutId);
-    return { id: request.id, success: false, error: "Failed to start daemon. Run manually: bb-browser daemon" };
-  }
-}
+import { sendCommand as sendCliCommand } from "../../cli/src/client.js";
+import { ensureDaemonRunning } from "../../cli/src/daemon-manager.js";
 
 function errorResult(message: string) {
   return {
@@ -88,8 +25,21 @@ function textResult(value: unknown) {
 }
 
 async function runCommand(request: Omit<Request, "id">) {
-  return sendCommand({ id: generateId(), ...request });
+  const id = generateId();
+
+  try {
+    await ensureDaemonRunning();
+    return await sendCliCommand({ id, ...request });
+  } catch (error) {
+    return {
+      id,
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    } satisfies Response;
+  }
 }
+
+const tabIdSchema = z.union([z.string(), z.number()]);
 
 const server = new McpServer(
   { name: "bb-browser", version: __BB_BROWSER_VERSION__ },
@@ -118,7 +68,7 @@ server.tool(
   "browser_snapshot",
   "Get accessibility tree snapshot of the current page",
   {
-    tab: z.number().optional().describe("Tab ID to target (omit for active tab)"),
+    tab: tabIdSchema.optional().describe("Tab ID to target (omit for active tab)"),
     interactive: z.boolean().optional().describe("Only show interactive elements"),
   },
   async ({ tab, interactive }) => {
@@ -133,7 +83,7 @@ server.tool(
   "Click an element by ref",
   {
     ref: z.string().describe("Element ref from snapshot"),
-    tab: z.number().optional().describe("Tab ID to target"),
+    tab: tabIdSchema.optional().describe("Tab ID to target"),
   },
   async ({ ref, tab }) => {
     const resp = await runCommand({ action: "click", ref, tabId: tab });
@@ -148,7 +98,7 @@ server.tool(
   {
     ref: z.string().describe("Element ref from snapshot"),
     text: z.string().describe("Text to fill"),
-    tab: z.number().optional().describe("Tab ID to target"),
+    tab: tabIdSchema.optional().describe("Tab ID to target"),
   },
   async ({ ref, text, tab }) => {
     const resp = await runCommand({ action: "fill", ref, text, tabId: tab });
@@ -163,7 +113,7 @@ server.tool(
   {
     ref: z.string().describe("Element ref from snapshot"),
     text: z.string().describe("Text to type"),
-    tab: z.number().optional().describe("Tab ID to target"),
+    tab: tabIdSchema.optional().describe("Tab ID to target"),
   },
   async ({ ref, text, tab }) => {
     const resp = await runCommand({ action: "type", ref, text, tabId: tab });
@@ -177,7 +127,7 @@ server.tool(
   "Navigate to a URL",
   {
     url: z.string().describe("URL to open"),
-    tab: z.number().optional().describe("Tab ID to target"),
+    tab: tabIdSchema.optional().describe("Tab ID to target"),
   },
   async ({ url, tab }) => {
     const resp = await runCommand({ action: "open", url, tabId: tab });
@@ -215,7 +165,7 @@ server.tool(
   "Press a keyboard key",
   {
     key: z.string().describe("Key name to press, e.g. Enter or Control+a"),
-    tab: z.number().optional().describe("Tab ID to target"),
+    tab: tabIdSchema.optional().describe("Tab ID to target"),
   },
   async ({ key, tab }) => {
     const parts = key.split("+");
@@ -235,7 +185,7 @@ server.tool(
   {
     direction: z.enum(["up", "down", "left", "right"]).describe("Scroll direction"),
     pixels: z.number().optional().default(500).describe("Scroll distance in pixels"),
-    tab: z.number().optional().describe("Tab ID to target"),
+    tab: tabIdSchema.optional().describe("Tab ID to target"),
   },
   async ({ direction, pixels, tab }) => {
     const resp = await runCommand({ action: "scroll", direction, pixels, tabId: tab });
@@ -249,7 +199,7 @@ server.tool(
   "Execute JavaScript in page context",
   {
     script: z.string().describe("JavaScript source to execute"),
-    tab: z.number().optional().describe("Tab ID to target"),
+    tab: tabIdSchema.optional().describe("Tab ID to target"),
   },
   async ({ script, tab }) => {
     const resp = await runCommand({ action: "eval", script, tabId: tab });
@@ -265,7 +215,7 @@ server.tool(
     command: z.enum(["requests", "clear"]).describe("Network command"),
     filter: z.string().optional().describe("Optional URL substring filter"),
     withBody: z.boolean().optional().describe("Include request and response bodies"),
-    tab: z.number().optional().describe("Tab ID to target"),
+    tab: tabIdSchema.optional().describe("Tab ID to target"),
   },
   async ({ command, filter, withBody, tab }) => {
     const resp = await runCommand({
@@ -284,7 +234,7 @@ server.tool(
   "browser_screenshot",
   "Take a screenshot",
   {
-    tab: z.number().optional().describe("Tab ID to target"),
+    tab: tabIdSchema.optional().describe("Tab ID to target"),
   },
   async ({ tab }) => {
     const resp = await runCommand({ action: "screenshot", tabId: tab });
@@ -305,9 +255,9 @@ server.tool(
   "browser_get",
   "Get element text or attribute",
   {
-    attribute: z.enum(["text", "url", "title", "value", "html"]).describe("Attribute to retrieve"),
+    attribute: z.enum(["text", "url", "title"]).describe("Attribute to retrieve"),
     ref: z.string().optional().describe("Optional element ref"),
-    tab: z.number().optional().describe("Tab ID to target"),
+    tab: tabIdSchema.optional().describe("Tab ID to target"),
   },
   async ({ attribute, ref, tab }) => {
     const resp = await runCommand({ action: "get", attribute, ref, tabId: tab });
@@ -320,7 +270,7 @@ server.tool(
   "browser_close",
   "Close the current or specified tab",
   {
-    tab: z.number().optional().describe("Tab ID to close"),
+    tab: tabIdSchema.optional().describe("Tab ID to close"),
   },
   async ({ tab }) => {
     const resp = await runCommand({ action: tab === undefined ? "close" : "tab_close", tabId: tab });
@@ -334,7 +284,7 @@ server.tool(
   "Hover over an element",
   {
     ref: z.string().describe("Element ref from snapshot"),
-    tab: z.number().optional().describe("Tab ID to target"),
+    tab: tabIdSchema.optional().describe("Tab ID to target"),
   },
   async ({ ref, tab }) => {
     const resp = await runCommand({ action: "hover", ref, tabId: tab });
@@ -348,7 +298,7 @@ server.tool(
   "Wait for a number of milliseconds",
   {
     time: z.number().describe("Time to wait in milliseconds"),
-    tab: z.number().optional().describe("Tab ID to target"),
+    tab: tabIdSchema.optional().describe("Tab ID to target"),
   },
   async ({ time, tab }) => {
     const resp = await runCommand({ action: "wait", waitType: "time", ms: time, tabId: tab });

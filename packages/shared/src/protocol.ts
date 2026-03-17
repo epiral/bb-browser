@@ -132,7 +132,7 @@ export interface TabInfo {
   /** 是否是当前活动标签页 */
   active: boolean;
   /** 标签页 ID */
-  tabId: number;
+  tabId: number | string;
 }
 
 /** Snapshot 命令返回的数据 */
@@ -226,7 +226,7 @@ export interface TraceStatus {
   /** 已录制事件数量 */
   eventCount: number;
   /** 录制的标签页 ID */
-  tabId?: number;
+  tabId?: number | string;
 }
 
 /** 响应数据 */
@@ -236,7 +236,7 @@ export interface ResponseData {
   /** 当前 URL */
   url?: string;
   /** Tab ID */
-  tabId?: number;
+  tabId?: number | string;
   /** Snapshot 数据（snapshot 操作返回） */
   snapshotData?: SnapshotData;
   /** 获取的文本或属性值（get 操作返回） */

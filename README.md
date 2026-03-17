@@ -71,14 +71,18 @@ bb-browser site xueqiu/hot-stock 5 --openclaw --jq '.items[] | {name, changePerc
 
 Skill on ClawHub: [bb-browser-openclaw](https://clawhub.ai/yan5xu/bb-browser)
 
-### Chrome Extension (standalone mode)
+### Managed Browser (standalone mode)
 
-For use without OpenClaw (Claude Code MCP, standalone CLI):
+For use without OpenClaw (Claude Code MCP, Codex, Cursor, standalone CLI), bb-browser can detect a local Chrome-family browser and launch a managed CDP profile automatically. No extension required.
+
+If you still need the legacy daemon + extension flow:
 
 1. Download from [Releases](https://github.com/epiral/bb-browser/releases/latest)
 2. Unzip → `chrome://extensions/` → Developer Mode → Load unpacked
 
 ### MCP (Claude Code / Cursor)
+
+MCP uses the same built-in CDP transport as the CLI, so it works without the legacy extension flow.
 
 ```json
 {
@@ -185,10 +189,10 @@ bb-browser daemon --host 0.0.0.0      # listen on all interfaces (for Tailscale 
 AI Agent (Claude Code, Codex, Cursor, etc.)
        │ CLI or MCP (stdio)
        ▼
-bb-browser CLI ──HTTP──▶ Daemon ──SSE──▶ Chrome Extension
-                                              │
-                                              ▼ chrome.debugger (CDP)
-                                         Your Real Browser
+bb-browser CLI / MCP ──CDP──▶ Managed Browser (or OpenClaw browser)
+
+Legacy remote flow:
+bb-browser CLI ──HTTP──▶ Daemon ──SSE──▶ Chrome Extension ──chrome.debugger──▶ Your Real Browser
 ```
 
 ## License
