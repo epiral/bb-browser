@@ -8,6 +8,7 @@
 import { sendResult, CommandResult } from './api-client';
 import { CommandEvent } from './sse-client';
 import * as cdp from './cdp-service';
+import { getCookies, NetworkCookie } from './cdp-service';
 import * as cdpDom from './cdp-dom-service';
 import { cleanupTab as cleanupCdpTab } from './cdp-dom-service';
 import { cleanupTab as cleanupDomTab } from './dom-service';
@@ -151,6 +152,10 @@ export async function handleCommand(command: CommandEvent): Promise<void> {
 
       case 'dialog':
         result = await handleDialog(command);
+        break;
+
+      case 'cookies':
+        result = await handleCookies(command);
         break;
 
       case 'network':
@@ -1765,6 +1770,120 @@ async function handleDialog(command: CommandEvent): Promise<CommandResult> {
       id: command.id,
       success: false,
       error: `Dialog failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+/**
+ * 处理 cookies 命令 - Cookie 管理（包括 HttpOnly）
+ *
+ * 子命令：
+ *   - get: 获取当前页面的所有 cookies（包括 HttpOnly）
+ *   - getByName: 获取指定名称的 cookie
+ *   - httpOnly: 只返回 HttpOnly cookies
+ *
+ * 参数：
+ *   - cookiesCommand: 子命令 ('get', 'getByName', 'httpOnly')
+ *   - name: cookie 名称（仅 getByName 需要）
+ */
+async function handleCookies(command: CommandEvent): Promise<CommandResult> {
+  const activeTab = await resolveTab(command);
+
+  if (!activeTab.id) {
+    return {
+      id: command.id,
+      success: false,
+      error: 'No active tab found',
+    };
+  }
+
+  const tabId = activeTab.id;
+  const subCommand = (command.cookiesCommand || 'get') as string;
+
+  console.log('[CommandHandler] Cookies command:', subCommand);
+
+  try {
+    const url = activeTab.url;
+    if (!url) {
+      return {
+        id: command.id,
+        success: false,
+        error: 'No URL found for current tab',
+      };
+    }
+
+    const cookies = await getCookies(tabId, [url]);
+
+    switch (subCommand) {
+      case 'get': {
+        return {
+          id: command.id,
+          success: true,
+          data: {
+            cookies,
+            url,
+            count: cookies.length,
+          },
+        };
+      }
+
+      case 'getByName': {
+        const name = command.name as string;
+        if (!name) {
+          return {
+            id: command.id,
+            success: false,
+            error: 'Missing name parameter for getByName command',
+          };
+        }
+
+        const cookie = cookies.find((c: NetworkCookie) => c.name === name);
+        if (!cookie) {
+          return {
+            id: command.id,
+            success: false,
+            error: `Cookie not found: ${name}`,
+            data: { url, availableCookies: cookies.map((c: NetworkCookie) => c.name) },
+          };
+        }
+
+        return {
+          id: command.id,
+          success: true,
+          data: {
+            cookie,
+            url,
+          },
+        };
+      }
+
+      case 'httpOnly': {
+        // 只返回 HttpOnly cookies
+        const httpOnlyCookies = cookies.filter((c: NetworkCookie) => c.httpOnly);
+        return {
+          id: command.id,
+          success: true,
+          data: {
+            cookies: httpOnlyCookies,
+            url,
+            count: httpOnlyCookies.length,
+          },
+        };
+      }
+
+      default:
+        return {
+          id: command.id,
+          success: false,
+          error: `Unknown cookies subcommand: ${subCommand}`,
+        };
+    }
+  } catch (error) {
+    console.error('[CommandHandler] Cookies command failed:', error);
+    return {
+      id: command.id,
+      success: false,
+      error: `Cookies command failed: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
 }

@@ -31,6 +31,7 @@ export type ActionType =
   | "frame_main"
   | "dialog"
   | "network"
+  | "cookies"
   | "console"
   | "errors"
   | "trace"
@@ -93,6 +94,10 @@ export interface Request {
   traceCommand?: "start" | "stop" | "status";
   /** history 子命令：search, domains */
   historyCommand?: "search" | "domains";
+  /** cookies 子命令：get, getByName, httpOnly */
+  cookiesCommand?: "get" | "getByName" | "httpOnly";
+  /** cookie 名称（getByName 时使用） */
+  name?: string;
   /** 按键名（press 命令使用） */
   key?: string;
   /** 修饰键列表（press 命令使用） */

@@ -1322,6 +1322,44 @@ function handleException(tabId: number, params: ExceptionParams): void {
 }
 
 // ============================================================================
+// Network 域 - Cookie 操作
+// ============================================================================
+
+/** Network.getCookies 的 Cookie 类型 */
+export interface NetworkCookie {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  expires?: number;
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite?: 'Strict' | 'Lax' | 'None';
+}
+
+/** Network.getCookies 的结果 */
+interface NetworkGetCookiesResult {
+  cookies: NetworkCookie[];
+}
+
+/**
+ * 获取指定 URL 的所有 Cookies（包括 HttpOnly）
+ *
+ * @param tabId - Tab ID
+ * @param urls - 要获取 cookies 的 URL 列表（不指定则获取所有）
+ * @returns Cookies 数组
+ */
+export async function getCookies(
+  tabId: number,
+  urls?: string[]
+): Promise<NetworkCookie[]> {
+  const result = await sendCommand<NetworkGetCookiesResult>(tabId, 'Network.getCookies', {
+    urls,
+  });
+  return result.cookies || [];
+}
+
+// ============================================================================
 // 辅助函数
 // ============================================================================
 
