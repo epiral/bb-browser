@@ -30,10 +30,7 @@ import { fetchCommand } from "./commands/fetch.js";
 import { siteCommand } from "./commands/site.js";
 import { historyCommand } from "./commands/history.js";
 import { setJqExpression } from "./client.js";
-
-declare const __BB_BROWSER_VERSION__: string;
-
-const VERSION = __BB_BROWSER_VERSION__;
+import { CLI_VERSION } from "./version.js";
 
 const HELP_TEXT = `
 bb-browser - AI Agent 浏览器自动化工具
@@ -224,7 +221,7 @@ async function main(): Promise<void> {
 
   // 处理全局选项
   if (parsed.flags.version) {
-    console.log(VERSION);
+    console.log(CLI_VERSION);
     return;
   }
 

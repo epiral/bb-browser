@@ -21,6 +21,7 @@ import { readFileSync, readdirSync, existsSync, mkdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { homedir } from "node:os";
 import { execSync } from "node:child_process";
+import { CLI_VERSION } from "../version.js";
 
 const BB_DIR = join(homedir(), ".bb-browser");
 const LOCAL_SITES_DIR = join(BB_DIR, "sites");
@@ -29,7 +30,7 @@ const COMMUNITY_REPO = "https://github.com/epiral/bb-sites.git";
 
 function checkCliUpdate(): void {
   try {
-    const current = execSync("bb-browser --version", { timeout: 3000, stdio: ["pipe", "pipe", "pipe"] }).toString().trim();
+    const current = CLI_VERSION;
     const latest = execSync("npm view bb-browser version", { timeout: 5000, stdio: ["pipe", "pipe", "pipe"] }).toString().trim();
     if (latest && current && latest !== current && latest.localeCompare(current, undefined, { numeric: true }) > 0) {
       console.log(`\n📦 bb-browser ${latest} available (current: ${current}). Run: npm install -g bb-browser`);
