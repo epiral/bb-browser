@@ -19,6 +19,17 @@ interface CdpTargetInfo {
 
 type JsonObject = Record<string, unknown>;
 
+interface CdpCookie extends JsonObject {
+  name?: string;
+  value?: string;
+  domain?: string;
+  path?: string;
+  expires?: number;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: "Strict" | "Lax" | "None";
+}
+
 interface PendingCommand {
   resolve: (value: unknown) => void;
   reject: (reason?: unknown) => void;
@@ -429,21 +440,7 @@ async function getTargets(): Promise<CdpTargetInfo[]> {
 
 async function ensurePageTarget(targetId?: string | number): Promise<CdpTargetInfo> {
   const targets = (await getTargets()).filter((target) => target.type === "page");
-  if (targets.length === 0) throw new Error("No page target found");
-
-  let target: CdpTargetInfo | undefined;
-  if (typeof targetId === "number") {
-    target = targets[targetId] ?? targets.find((item) => Number(item.id) === targetId);
-  } else if (typeof targetId === "string") {
-    target = targets.find((item) => item.id === targetId);
-    if (!target) {
-      const numericTargetId = Number(targetId);
-      if (!Number.isNaN(numericTargetId)) {
-        target = targets[numericTargetId] ?? targets.find((item) => Number(item.id) === numericTargetId);
-      }
-    }
-  }
-  target ??= targets[0];
+  const target = selectPageTarget(targets, targetId);
   connectionState!.currentTargetId = target.id;
   await attachTarget(target.id);
   return target;
@@ -843,6 +840,95 @@ function fail(id: string, error: unknown): Response {
   return { id, success: false, error: buildRequestError(error).message };
 }
 
+function normalizeCookie(cookie: CdpCookie) {
+  return {
+    name: String(cookie.name ?? ""),
+    value: String(cookie.value ?? ""),
+    domain: String(cookie.domain ?? ""),
+    path: String(cookie.path ?? "/"),
+    expires: typeof cookie.expires === "number" ? cookie.expires : undefined,
+    httpOnly: Boolean(cookie.httpOnly),
+    secure: Boolean(cookie.secure),
+    sameSite: cookie.sameSite,
+  };
+}
+
+function selectPageTarget(targets: CdpTargetInfo[], targetId?: string | number): CdpTargetInfo {
+  if (targets.length === 0) throw new Error("No page target found");
+
+  let target: CdpTargetInfo | undefined;
+  if (typeof targetId === "number") {
+    target = targets[targetId] ?? targets.find((item) => Number(item.id) === targetId);
+  } else if (typeof targetId === "string") {
+    target = targets.find((item) => item.id === targetId);
+    if (!target) {
+      const numericTargetId = Number(targetId);
+      if (!Number.isNaN(numericTargetId)) {
+        target = targets[numericTargetId] ?? targets.find((item) => Number(item.id) === numericTargetId);
+      }
+    }
+  }
+
+  return target ?? targets[0];
+}
+
+async function runDirectPageCommand<T>(target: CdpTargetInfo, method: string, params: JsonObject = {}): Promise<T> {
+  if (!target.webSocketDebuggerUrl) {
+    throw new Error("Page target missing webSocketDebuggerUrl");
+  }
+
+  const ws = await connectWebSocket(target.webSocketDebuggerUrl);
+  const messageId = 1;
+
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error(`${method}: timeout`));
+      }, COMMAND_TIMEOUT);
+
+      const cleanup = () => {
+        clearTimeout(timer);
+        ws.off("message", onMessage);
+      };
+
+      const onMessage = (raw: WebSocket.RawData) => {
+        const message = JSON.parse(raw.toString()) as JsonObject;
+        if (message.id !== messageId) return;
+        cleanup();
+        if (message.error) {
+          reject(new Error(`${method}: ${(message.error as JsonObject).message ?? "Unknown CDP error"}`));
+          return;
+        }
+        resolve(message.result as T);
+      };
+
+      ws.on("message", onMessage);
+      ws.send(JSON.stringify({ id: messageId, method, params }));
+    });
+  } finally {
+    ws.close();
+  }
+}
+
+async function getCookiesViaPageWebSocket(targetId?: string | number): Promise<{ target: CdpTargetInfo; cookies: ReturnType<typeof normalizeCookie>[] }> {
+  const state = connectionState;
+  if (!state) throw new Error("CDP connection not initialized");
+
+  const targets = (await getJsonList(state.host, state.port)).filter((item) => item.type === "page");
+  const target = selectPageTarget(targets, targetId);
+  const result = await runDirectPageCommand<{ cookies?: CdpCookie[] }>(
+    target,
+    "Network.getCookies",
+    target.url ? { urls: [target.url] } : {},
+  );
+
+  return {
+    target,
+    cookies: (result.cookies ?? []).map(normalizeCookie),
+  };
+}
+
 export async function ensureCdpConnection(): Promise<void> {
   if (connectionState) return;
   if (reconnecting) return reconnecting;
@@ -863,7 +949,6 @@ export async function ensureCdpConnection(): Promise<void> {
   }
 }
 
-
 export async function sendCommand(request: Request): Promise<Response> {
   try {
     await ensureCdpConnection();
@@ -875,6 +960,31 @@ export async function sendCommand(request: Request): Promise<Response> {
 }
 
 async function dispatchRequest(request: Request): Promise<Response> {
+  if (request.action === "cookies") {
+      const subCommand = request.cookiesCommand ?? "get";
+      const { target, cookies } = await getCookiesViaPageWebSocket(request.tabId);
+
+      switch (subCommand) {
+        case "get":
+          return ok(request.id, { cookies, url: target.url, count: cookies.length });
+        case "getByName": {
+          if (!request.name) return fail(request.id, "Missing name parameter");
+          const cookie = cookies.find((item) => item.name === request.name);
+          return ok(request.id, {
+            cookie,
+            url: target.url,
+            availableCookies: cookies.map((item) => item.name),
+          });
+        }
+        case "httpOnly": {
+          const httpOnlyCookies = cookies.filter((item) => item.httpOnly);
+          return ok(request.id, { cookies: httpOnlyCookies, url: target.url, count: httpOnlyCookies.length });
+        }
+        default:
+          return fail(request.id, `Unknown cookies subcommand: ${subCommand}`);
+      }
+  }
+
   const target = await ensurePageTarget(request.tabId);
   switch (request.action) {
     case "open": {

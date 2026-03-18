@@ -31,6 +31,7 @@ export type ActionType =
   | "frame_main"
   | "dialog"
   | "network"
+  | "cookies"
   | "console"
   | "errors"
   | "trace"
@@ -93,6 +94,10 @@ export interface Request {
   traceCommand?: "start" | "stop" | "status";
   /** history 子命令：search, domains */
   historyCommand?: "search" | "domains";
+  /** cookies 子命令：get, getByName, httpOnly */
+  cookiesCommand?: "get" | "getByName" | "httpOnly";
+  /** cookie 名称（getByName 时使用） */
+  name?: string;
   /** 按键名（press 命令使用） */
   key?: string;
   /** 修饰键列表（press 命令使用） */
@@ -163,6 +168,18 @@ export interface NetworkRequestInfo {
   responseBodyTruncated?: boolean;
   mimeType?: string;
   bodyError?: string;
+}
+
+/** Cookie 信息（cookies 命令返回） */
+export interface CookieInfo {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  expires?: number;
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite?: "Strict" | "Lax" | "None";
 }
 
 /** 控制台消息 */
@@ -273,6 +290,14 @@ export interface ResponseData {
   };
   /** 网络请求列表（network requests 命令返回） */
   networkRequests?: NetworkRequestInfo[];
+  /** Cookie 列表（cookies get/httpOnly 命令返回） */
+  cookies?: CookieInfo[];
+  /** 单个 Cookie（cookies getByName 命令返回） */
+  cookie?: CookieInfo;
+  /** 当前可用的 Cookie 名称（cookies getByName 未命中时返回） */
+  availableCookies?: string[];
+  /** Cookie 数量 */
+  count?: number;
   /** 网络路由规则数量（network route/unroute 命令返回） */
   routeCount?: number;
   /** 控制台消息列表（console 命令返回） */
