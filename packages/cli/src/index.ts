@@ -23,6 +23,7 @@ import { tabCommand } from "./commands/tab.js";
 import { frameCommand, frameMainCommand } from "./commands/frame.js";
 import { dialogCommand } from "./commands/dialog.js";
 import { networkCommand } from "./commands/network.js";
+import { cookiesCommand } from "./commands/cookies.js";
 import { consoleCommand } from "./commands/console.js";
 import { errorsCommand } from "./commands/errors.js";
 import { traceCommand } from "./commands/trace.js";
@@ -83,6 +84,7 @@ bb-browser - AI Agent 浏览器自动化工具
 
 调试：
   network requests [filter]    查看网络请求
+  cookies get|getByName|httpOnly  查看 Cookies（包括 HttpOnly）
   console [--clear]            查看/清空控制台
   errors [--clear]             查看/清空 JS 错误
   trace start|stop|status      录制用户操作
@@ -518,6 +520,13 @@ async function main(): Promise<void> {
         const bodyIndex = process.argv.findIndex(a => a === "--body");
         const body = bodyIndex >= 0 ? process.argv[bodyIndex + 1] : undefined;
         await networkCommand(subCommand, urlOrFilter, { json: parsed.flags.json, abort, body, withBody, tabId: globalTabId });
+        break;
+      }
+
+      case "cookies": {
+        const subCommand = parsed.args[0] || "get";
+        const name = parsed.args[1];
+        await cookiesCommand(subCommand, name, { json: parsed.flags.json, tabId: globalTabId });
         break;
       }
 
