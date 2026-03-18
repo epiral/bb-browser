@@ -3,6 +3,16 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./runtime": {
+      "import": "./dist/runtime.js",
+      "types": "./dist/runtime.d.ts"
+    }
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
@@ -14,13 +24,13 @@
     "test": "tsx --test src/openclaw-json.test.ts"
   },
   "dependencies": {
-    "@bb-browser/shared": "workspace:*"
+    "@bb-browser/shared": "workspace:*",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "tsx": "^4.20.6",
     "tsup": "^8.0.0",
-    "typescript": "^5.3.0",
-    "ws": "^8.19.0"
+    "typescript": "^5.3.0"
   }
 }
