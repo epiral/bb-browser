@@ -935,10 +935,10 @@ async function dispatchRequest(request: Request): Promise<Response> {
     case "get": {
       if (!request.attribute) return fail(request.id, "Missing attribute parameter");
       if (request.attribute === "url") {
-        return ok(request.id, { value: target.url });
+        return ok(request.id, { value: await evaluate<string>(target.id, "location.href", true) });
       }
       if (request.attribute === "title") {
-        return ok(request.id, { value: target.title });
+        return ok(request.id, { value: await evaluate<string>(target.id, "document.title", true) });
       }
       if (!request.ref) return fail(request.id, "Missing ref parameter");
       const value = await getAttributeValue(target.id, await parseRef(request.ref), request.attribute);

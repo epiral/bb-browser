@@ -1,12 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { sendCommand as sendCliCommand, ensureDaemonRunning } from "@bb-browser/cli/runtime";
 import { generateId } from "@bb-browser/shared";
 import type { Request, Response } from "@bb-browser/shared";
 import { z } from "zod";
 
 declare const __BB_BROWSER_VERSION__: string;
-import { sendCommand as sendCliCommand } from "../../cli/src/client.js";
-import { ensureDaemonRunning } from "../../cli/src/daemon-manager.js";
 
 function errorResult(message: string) {
   return {
@@ -255,7 +254,7 @@ server.tool(
   "browser_get",
   "Get element text or attribute",
   {
-    attribute: z.enum(["text", "url", "title"]).describe("Attribute to retrieve"),
+    attribute: z.enum(["text", "url", "title", "value", "html"]).describe("Attribute to retrieve"),
     ref: z.string().optional().describe("Optional element ref"),
     tab: tabIdSchema.optional().describe("Tab ID to target"),
   },
