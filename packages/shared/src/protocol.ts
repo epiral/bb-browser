@@ -64,8 +64,10 @@ export interface Request {
   value?: string;
   /** 标签页索引（tab_select, tab_close 命令使用） */
   index?: number;
-  /** 标签页 ID（tab_select, tab_close 命令使用，优先于 index） */
-  tabId?: number | string;
+  /** 标签页 ID（Chrome tabs 数字 ID，tab_select/tab_close/open 命令使用） */
+  tabId?: number | "current";
+  /** CDP Target ID（direct CDP mode 使用，优先于 tabId/index） */
+  targetId?: string;
   /** CSS 选择器（frame 命令使用，定位 iframe） */
   selector?: string;
   /** dialog 响应类型（dialog 命令使用） */
@@ -131,8 +133,10 @@ export interface TabInfo {
   title: string;
   /** 是否是当前活动标签页 */
   active: boolean;
-  /** 标签页 ID */
-  tabId: number;
+  /** 标签页 ID（Chrome tabs 数字 ID） */
+  tabId?: number;
+  /** CDP Target ID（direct CDP mode 返回） */
+  targetId?: string;
 }
 
 /** Snapshot 命令返回的数据 */
@@ -235,8 +239,12 @@ export interface ResponseData {
   title?: string;
   /** 当前 URL */
   url?: string;
-  /** Tab ID */
+  /** Tab ID（Chrome tabs 数字 ID） */
   tabId?: number;
+  /** CDP Target ID（direct CDP mode 返回） */
+  targetId?: string;
+  /** 标签页索引（tab_select 命令返回） */
+  index?: number;
   /** Snapshot 数据（snapshot 操作返回） */
   snapshotData?: SnapshotData;
   /** 获取的文本或属性值（get 操作返回） */
@@ -260,7 +268,7 @@ export interface ResponseData {
     /** iframe 的 URL */
     url?: string;
     /** frame ID */
-    frameId?: number;
+    frameId?: number | string;
   };
   /** dialog 信息（dialog 命令返回） */
   dialogInfo?: {
