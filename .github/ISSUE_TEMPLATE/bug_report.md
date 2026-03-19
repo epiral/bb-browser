@@ -2,6 +2,7 @@
 name: Bug report
 about: Report a reproducible problem in bb-browser
 title: "[Bug] "
+labels: ["bug"]
 ---
 
 ## Summary / 问题概述

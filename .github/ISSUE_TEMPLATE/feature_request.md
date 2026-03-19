@@ -2,6 +2,7 @@
 name: Feature request
 about: Suggest an improvement for bb-browser
 title: "[Feature] "
+labels: ["enhancement"]
 ---
 
 ## Problem Or Goal / 问题或目标
@@ -36,13 +37,13 @@ Explain the user value, workflow gap, or agent use case.
 
 Check anything relevant:
 
-- CLI command
-- Extension behavior
-- Daemon behavior
-- `site` adapter
-- OpenClaw integration
-- JSON output
-- MCP / agent workflow
+- [ ] CLI command
+- [ ] Extension behavior
+- [ ] Daemon behavior
+- [ ] `site` adapter
+- [ ] OpenClaw integration
+- [ ] JSON output
+- [ ] MCP / agent workflow
 
 ## Alternatives Considered / 备选方案
 
