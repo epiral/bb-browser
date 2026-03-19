@@ -30,7 +30,7 @@ function getArgValue(flag: string): string | undefined {
 
 async function tryOpenClaw(): Promise<{ host: string; port: number } | null> {
   try {
-    const raw = await execFileAsync("npx", ["openclaw", "browser", "status", "--json"], 5000);
+    const raw = await execFileAsync("npx", ["openclaw", "browser", "status", "--json"], 30000);
     const parsed = parseOpenClawJson<{ cdpUrl?: string; cdpHost?: string; cdpPort?: number | string }>(raw);
 
     // 优先使用完整的 cdpUrl
