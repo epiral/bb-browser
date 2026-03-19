@@ -10,10 +10,23 @@ export interface OCTab {
   type: string;
 }
 
+export function buildOpenClawArgs(args: string[], timeout: number): string[] {
+  const [subcommand, ...rest] = args;
+  if (!subcommand) {
+    throw new Error("OpenClaw browser command requires a subcommand");
+  }
+
+  return ["openclaw", "browser", subcommand, "--timeout", String(timeout), ...rest];
+}
+
+export function getOpenClawExecTimeout(timeout: number): number {
+  return timeout + 5000;
+}
+
 function runOpenClaw(args: string[], timeout: number): string {
-  return execFileSync("npx", ["openclaw", "browser", "--timeout", String(timeout), ...args], {
+  return execFileSync("npx", buildOpenClawArgs(args, timeout), {
     encoding: "utf-8",
-    timeout: timeout + 5000,
+    timeout: getOpenClawExecTimeout(timeout),
     stdio: ["pipe", "pipe", "pipe"],
   }).trim();
 }
