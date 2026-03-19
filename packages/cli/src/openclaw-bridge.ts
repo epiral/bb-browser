@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { parseOpenClawJson } from "./openclaw-json.js";
 
+const OPENCLAW_EVALUATE_TIMEOUT_MS = 120000;
+
 export interface OCTab {
   targetId: string;
   url: string;
@@ -9,9 +11,9 @@ export interface OCTab {
 }
 
 function runOpenClaw(args: string[], timeout: number): string {
-  return execFileSync("npx", ["openclaw", "browser", ...args], {
+  return execFileSync("npx", ["openclaw", "browser", "--timeout", String(timeout), ...args], {
     encoding: "utf-8",
-    timeout,
+    timeout: timeout + 5000,
     stdio: ["pipe", "pipe", "pipe"],
   }).trim();
 }
@@ -40,6 +42,6 @@ export function ocOpenTab(url: string): string {
 }
 
 export function ocEvaluate(targetId: string, fn: string): unknown {
-  const raw = runOpenClaw(["evaluate", "--fn", fn, "--target-id", targetId], 30000);
+  const raw = runOpenClaw(["evaluate", "--fn", fn, "--target-id", targetId], OPENCLAW_EVALUATE_TIMEOUT_MS);
   return parseOpenClawJson(raw);
 }
