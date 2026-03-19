@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 /**
  * CLI 与 Chrome Extension 之间的通信协议类型定义
  */
@@ -332,5 +334,5 @@ export interface DaemonStatus {
  * @returns UUID v4 格式的字符串
  */
 export function generateId(): string {
-  return crypto.randomUUID();
+  return randomUUID();
 }
