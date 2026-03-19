@@ -31,10 +31,26 @@ function getArgValue(flag: string): string | undefined {
 async function tryOpenClaw(): Promise<{ host: string; port: number } | null> {
   try {
     const raw = await execFileAsync("npx", ["openclaw", "browser", "status", "--json"], 5000);
-    const parsed = parseOpenClawJson<{ cdpPort?: number | string }>(raw);
+    const parsed = parseOpenClawJson<{ cdpUrl?: string; cdpHost?: string; cdpPort?: number | string }>(raw);
+
+    // 优先使用完整的 cdpUrl
+    if (parsed?.cdpUrl) {
+      try {
+        const url = new URL(parsed.cdpUrl);
+        const port = Number(url.port);
+        if (Number.isInteger(port) && port > 0) {
+          return { host: url.hostname, port };
+        }
+      } catch {
+        // cdpUrl 解析失败，继续尝试其他字段
+      }
+    }
+
+    // 其次使用 cdpHost + cdpPort
     const port = Number(parsed?.cdpPort);
     if (Number.isInteger(port) && port > 0) {
-      return { host: "127.0.0.1", port };
+      const host = parsed?.cdpHost || "127.0.0.1";
+      return { host, port };
     }
   } catch {
   }
