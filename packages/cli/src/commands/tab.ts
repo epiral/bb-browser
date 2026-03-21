@@ -146,9 +146,10 @@ export async function tabCommand(
           break;
         }
         case "tab_select": {
+          const selectedIndex = response.data?.index ?? parsed.index ?? "?";
           const title = response.data?.title ?? "(无标题)";
           const url = response.data?.url ?? "";
-          console.log(`已切换到标签页 #${parsed.index}: ${title}`);
+          console.log(`已切换到标签页 #${selectedIndex}: ${title}`);
           console.log(`  URL: ${url}`);
           break;
         }
