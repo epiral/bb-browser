@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation / 文档
+    url: https://github.com/epiral/bb-browser/blob/main/README.md
+    about: Read the README before opening an issue.
+  - name: 中文文档
+    url: https://github.com/epiral/bb-browser/blob/main/README.zh-CN.md
+    about: 提交 issue 前，先看中文 README。
