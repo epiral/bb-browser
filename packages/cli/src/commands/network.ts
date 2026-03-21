@@ -2,6 +2,7 @@
  * network 命令 - 网络监控和拦截
  */
 
+import { generateId } from "@bb-browser/shared";
 import { sendCommand } from "../client.js";
 
 interface NetworkOptions {
@@ -18,7 +19,7 @@ export async function networkCommand(
   options: NetworkOptions = {}
 ): Promise<void> {
   const response = await sendCommand({
-    id: crypto.randomUUID(),
+    id: generateId(),
     action: "network",
     networkCommand: subCommand as "requests" | "route" | "unroute" | "clear",
     url: subCommand === "route" || subCommand === "unroute" ? urlOrFilter : undefined,
