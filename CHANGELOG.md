@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.10.0](https://github.com/epiral/bb-browser/compare/bb-browser-v0.9.0...bb-browser-v0.10.0) (2026-03-22)
+
+
+### Features
+
+* bb-browserd — Pinix capability adapter ([3af2b4c](https://github.com/epiral/bb-browser/commit/3af2b4c8562292edf5807315075b42e520063449))
+* bb-browserd CDP direct connection (replaces daemon HTTP) ([2ce47c5](https://github.com/epiral/bb-browser/commit/2ce47c55cec12a5e9a57faebf604643f75ac5cac))
+* bb-browserd migrate from WebSocket to Connect-RPC ProviderStream ([e730b0e](https://github.com/epiral/bb-browser/commit/e730b0ef554f7664e4d25f0e0e5b845dd6c35b50))
+
+
+### Bug Fixes
+
+* open new tabs in background to avoid bringing Chrome to foreground ([6d8f18b](https://github.com/epiral/bb-browser/commit/6d8f18b39336524a4c808f35b75d05d104260098))
+
 ## [0.9.0](https://github.com/epiral/bb-browser/compare/bb-browser-v0.8.3...bb-browser-v0.9.0) (2026-03-19)
 
 
