@@ -619,13 +619,12 @@ function loadBuildDomTreeScript(): string {
 
 async function evaluate<T>(targetId: string, expression: string, returnByValue = true): Promise<T> {
   const result = await sessionCommand<{
-    result: { value?: T; objectId?: string };
+    result: { type?: string; value?: T; objectId?: string };
     exceptionDetails?: { text?: string; exception?: { description?: string } };
   }>(targetId, "Runtime.evaluate", {
     expression,
     awaitPromise: true,
     returnByValue,
-    replMode: true,
   });
   if (result.exceptionDetails) {
     throw new Error(
