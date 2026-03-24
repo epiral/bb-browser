@@ -29,7 +29,7 @@ import { traceCommand } from "./commands/trace.js";
 import { fetchCommand } from "./commands/fetch.js";
 import { siteCommand } from "./commands/site.js";
 import { historyCommand } from "./commands/history.js";
-import { statusCommand } from "./commands/daemon.js";
+import { daemonCommand, statusCommand } from "./commands/daemon.js";
 import { setJqExpression } from "./client.js";
 
 declare const __BB_BROWSER_VERSION__: string;
@@ -80,6 +80,9 @@ bb-browser - AI Agent 浏览器自动化工具
 标签页：
   tab [list|new|close|<n>]     管理标签页
   status                       查看受管浏览器状态
+
+服务：
+  daemon [--host <host>] [--port <port>]  前台启动 daemon
 
 导航：
   back / forward / refresh     后退 / 前进 / 刷新
@@ -210,6 +213,12 @@ function parseArgs(argv: string[]): ParsedArgs {
   return result;
 }
 
+function getCommandTailArgs(argv: string[], command: string): string[] {
+  const args = argv.slice(2);
+  const commandIndex = args.indexOf(command);
+  return commandIndex >= 0 ? args.slice(commandIndex + 1) : [];
+}
+
 /**
  * 主函数
  */
@@ -237,7 +246,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (parsed.flags.help || !parsed.command) {
+  if ((parsed.flags.help && parsed.command !== "daemon") || !parsed.command) {
     console.log(HELP_TEXT);
     return;
   }
@@ -407,7 +416,10 @@ async function main(): Promise<void> {
         break;
       }
 
-      case "daemon":
+      case "daemon": {
+        await daemonCommand(getCommandTailArgs(process.argv, "daemon"));
+        break;
+      }
 
       case "close": {
         await closeCommand({ json: parsed.flags.json, tabId: globalTabId });

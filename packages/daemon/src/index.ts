@@ -49,10 +49,10 @@ function parseOptions(): DaemonOptions {
 
   if (values.help) {
     console.error(`
-bb-browser-daemon - HTTP Server Daemon for bb-browser
+bb-browser daemon - HTTP server daemon for bb-browser
 
 Usage:
-  bb-browser-daemon [options]
+  bb-browser daemon [options]
 
 Options:
   -H, --host <host>  HTTP server host (default: ${DAEMON_HOST})
