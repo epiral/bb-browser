@@ -17,7 +17,17 @@ export function buildOpenClawArgs(args: string[], timeout: number): string[] {
     throw new Error("OpenClaw browser command requires a subcommand");
   }
 
-  return ["openclaw", "browser", subcommand, "--timeout", String(timeout), ...rest];
+  const browserLevelFlags: string[] = [];
+  const subcommandArgs: string[] = [];
+  for (const arg of rest) {
+    if (arg === "--json") {
+      browserLevelFlags.push(arg);
+      continue;
+    }
+    subcommandArgs.push(arg);
+  }
+
+  return ["openclaw", "browser", ...browserLevelFlags, "--timeout", String(timeout), subcommand, ...subcommandArgs];
 }
 
 export function getOpenClawExecTimeout(timeout: number): number {
