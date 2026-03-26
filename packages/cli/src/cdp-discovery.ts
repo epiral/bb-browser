@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parseOpenClawJson } from "./openclaw-json.js";
+import { discoverSessionPort } from "./session-manager.js";
 
 const DEFAULT_CDP_PORT = 19825;
 const MANAGED_BROWSER_DIR = path.join(os.homedir(), ".bb-browser", "browser");
@@ -174,11 +175,17 @@ export async function launchManagedBrowser(port: number = DEFAULT_CDP_PORT): Pro
 }
 
 export async function discoverCdpPort(): Promise<{ host: string; port: number } | null> {
+  // Explicit --port flag (connect only, no auto-launch)
   const explicitPort = Number.parseInt(getArgValue("--port") ?? "", 10);
   if (Number.isInteger(explicitPort) && explicitPort > 0 && await canConnect("127.0.0.1", explicitPort)) {
     return { host: "127.0.0.1", port: explicitPort };
   }
 
+  // Multi-instance session isolation (Claude Code, BB_BROWSER_PORT, BB_BROWSER_SESSION_ID)
+  const session = await discoverSessionPort();
+  if (session.handled) return session.endpoint;
+
+  // Legacy single-instance path (no session context detected)
   try {
     const rawPort = await readFile(MANAGED_PORT_FILE, "utf8");
     const managedPort = Number.parseInt(rawPort.trim(), 10);
