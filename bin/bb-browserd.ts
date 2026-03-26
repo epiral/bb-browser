@@ -929,13 +929,16 @@ class PinixBridge {
   private readonly transport;
   private readonly client: HubClient;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private runPromise: Promise<void> | null = null;
   private abortController: AbortController | null = null;
   private stopped = false;
 
   constructor(private readonly options: Options) {
+    this.resetTransport();
+  }
+
+  private resetTransport(): void {
     this.transport = createGrpcTransport({
-      baseUrl: options.pinixUrl,
+      baseUrl: this.options.pinixUrl,
       httpVersion: "2",
     });
     this.client = createClient(HubServiceDescriptor as any, this.transport) as HubClient;
@@ -952,20 +955,18 @@ class PinixBridge {
   }
 
   private connect(): void {
-    if (this.stopped || this.runPromise) {
+    if (this.stopped) {
       return;
     }
 
-    this.runPromise = this.runStream()
+    this.resetTransport();
+    this.runStream()
       .catch((error) => {
         if (this.stopped) {
           return;
         }
         console.error(`[bb-browserd] Provider stream error: ${formatError(error)}`);
         this.scheduleReconnect();
-      })
-      .finally(() => {
-        this.runPromise = null;
       });
   }
 
@@ -1124,7 +1125,6 @@ class PinixBridge {
       this.reconnectTimer = null;
       this.connect();
     }, RECONNECT_DELAY_MS);
-    maybeUnref(this.reconnectTimer);
   }
 
   private clearReconnectTimer(): void {
