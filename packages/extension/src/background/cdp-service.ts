@@ -299,6 +299,20 @@ export async function evaluate(
     throw new Error(`Eval error: ${errorMsg}`);
   }
 
+  // When awaitPromise resolves an async function, Chrome may return an objectId
+  // instead of a serialized value even with returnByValue: true. Fall back to
+  // JSON.stringify via callFunctionOn to recover the actual value.
+  if (result.result?.value === undefined && result.result?.objectId) {
+    const serialized = await callFunctionOn(
+      tabId,
+      result.result.objectId,
+      'function() { try { return JSON.stringify(this); } catch(e) { return String(this); } }'
+    );
+    if (serialized !== undefined) {
+      try { return JSON.parse(serialized as string); } catch { return serialized; }
+    }
+  }
+
   return result.result?.value;
 }
 
