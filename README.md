@@ -84,8 +84,14 @@ For use without OpenClaw (Claude Code MCP, standalone CLI):
 {
   "mcpServers": {
     "bb-browser": {
+      "type": "stdio",
       "command": "npx",
-      "args": ["-y", "bb-browser", "--mcp"]
+      "args": [
+        "-y",
+        "--package",
+        "bb-browser",
+        "bb-browser-mcp"
+      ]
     }
   }
 }
