@@ -1,8 +1,26 @@
-import { isDaemonRunning } from "../daemon-manager.js";
+import { spawn } from "node:child_process";
+import { getDaemonPath, isDaemonRunning } from "../daemon-manager.js";
 
 export interface DaemonOptions {
   json?: boolean;
   host?: string;
+}
+
+export async function daemonCommand(args: string[]): Promise<void> {
+  await new Promise<void>((_resolve, reject) => {
+    const child = spawn(process.execPath, [getDaemonPath(), ...args], {
+      stdio: "inherit",
+    });
+
+    child.on("error", reject);
+    child.on("exit", (code, signal) => {
+      if (signal) {
+        reject(new Error(`Daemon exited with signal ${signal}`));
+        return;
+      }
+      process.exit(code ?? 0);
+    });
+  });
 }
 
 export async function statusCommand(
