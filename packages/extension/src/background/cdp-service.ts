@@ -223,10 +223,14 @@ export async function ensureAttached(tabId: number): Promise<void> {
     
     // 启用必要的 CDP 域
     await chrome.debugger.sendCommand({ tabId }, 'Page.enable');
+    // Bypass CSP so that site adapters can make cross-origin fetch() calls
+    // that would otherwise be blocked by connect-src directives.
+    // This only takes effect for page loads that occur after this command.
+    await chrome.debugger.sendCommand({ tabId }, 'Page.setBypassCSP', { enabled: true });
     await chrome.debugger.sendCommand({ tabId }, 'DOM.enable');
     await chrome.debugger.sendCommand({ tabId }, 'Runtime.enable');
     
-    console.log('[CDPService] Attached to tab:', tabId);
+    console.log('[CDPService] Attached to tab (CSP bypassed):', tabId);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     // 如果已经 attached，忽略错误

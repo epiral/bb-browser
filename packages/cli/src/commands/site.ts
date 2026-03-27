@@ -579,8 +579,35 @@ async function siteRun(
   const jsBody = jsContent.replace(/\/\*\s*@meta[\s\S]*?\*\//, "").trim();
 
   // 构造执行脚本
+  // Wrap adapter execution with a fetch() override that drops credentials
+  // for cross-origin requests. Browsers block cross-origin fetch with
+  // credentials: 'include' unless the server explicitly allows it via
+  // Access-Control-Allow-Credentials. Most site adapters set credentials
+  // for same-origin cookie auth, but this breaks when they also make
+  // cross-origin API calls. The wrapper detects cross-origin requests
+  // and downgrades them to credentials: 'omit'.
   const argsJson = JSON.stringify(argMap);
-  const script = `(${jsBody})(${argsJson})`;
+  const script = `(async () => {
+    const __origFetch = window.fetch.bind(window);
+    const __pageOrigin = location.origin;
+    window.fetch = function(input, init) {
+      try {
+        const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+        if (url.startsWith('http') && !url.startsWith(__pageOrigin)) {
+          init = Object.assign({}, init || {});
+          if (init.credentials === 'include') {
+            init.credentials = 'omit';
+          }
+        }
+      } catch(e) {}
+      return __origFetch(input, init);
+    };
+    try {
+      return await (${jsBody})(${argsJson});
+    } finally {
+      window.fetch = __origFetch;
+    }
+  })()`;
 
   if (options.openclaw) {
     const { ocGetTabs, ocFindTabByDomain, ocOpenTab, ocEvaluate } = await import("../openclaw-bridge.js");
