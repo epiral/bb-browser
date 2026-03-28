@@ -460,19 +460,18 @@ async function getTargets(): Promise<CdpTargetInfo[]> {
   }
 }
 
-
-async function ensurePageTarget(targetId?: string | number): Promise<CdpTargetInfo> {
+async function ensurePageTarget(targetRef?: string | number): Promise<CdpTargetInfo> {
   const targets = (await getTargets()).filter((target) => target.type === "page");
   if (targets.length === 0) throw new Error("No page target found");
 
-  const persistedTargetId = targetId === undefined ? connectionState?.currentTargetId : undefined;
+  const persistedTargetId = targetRef === undefined ? connectionState?.currentTargetId : undefined;
   let target: CdpTargetInfo | undefined;
-  if (typeof targetId === "number") {
-    target = targets[targetId] ?? targets.find((item) => Number(item.id) === targetId);
-  } else if (typeof targetId === "string") {
-    target = targets.find((item) => item.id === targetId);
+  if (typeof targetRef === "number") {
+    target = targets[targetRef] ?? targets.find((item) => Number(item.id) === targetRef);
+  } else if (typeof targetRef === "string") {
+    target = targets.find((item) => item.id === targetRef);
     if (!target) {
-      const numericTargetId = Number(targetId);
+      const numericTargetId = Number(targetRef);
       if (!Number.isNaN(numericTargetId)) {
         target = targets[numericTargetId] ?? targets.find((item) => Number(item.id) === numericTargetId);
       }
@@ -967,19 +966,19 @@ export async function sendCommand(request: Request): Promise<Response> {
 }
 
 async function dispatchRequest(request: Request): Promise<Response> {
-  const target = await ensurePageTarget(request.tabId);
+  const target = await ensurePageTarget(request.targetId ?? request.tabId);
   switch (request.action) {
     case "open": {
       if (!request.url) return fail(request.id, "Missing url parameter");
-      if (request.tabId === undefined) {
+      if (request.tabId === undefined && request.targetId === undefined) {
         const created = await browserCommand<{ targetId: string }>("Target.createTarget", { url: request.url, background: true });
         const newTarget = await ensurePageTarget(created.targetId);
-        return ok(request.id, { url: request.url, tabId: newTarget.id });
+        return ok(request.id, { url: request.url, targetId: newTarget.id });
       }
       await pageCommand(target.id, "Page.navigate", { url: request.url });
       connectionState?.refsByTarget.delete(target.id);
       clearPersistedRefs(target.id);
-      return ok(request.id, { url: request.url, title: target.title, tabId: target.id });
+      return ok(request.id, { url: request.url, title: target.title, targetId: target.id });
     }
     case "snapshot": {
       const snapshotData = await buildSnapshot(target.id, request);
@@ -1082,28 +1081,44 @@ async function dispatchRequest(request: Request): Promise<Response> {
       return ok(request.id, { result });
     }
     case "tab_list": {
-      const tabs = (await getTargets()).filter((item) => item.type === "page").map((item, index): TabInfo => ({ index, url: item.url, title: item.title, active: item.id === connectionState?.currentTargetId || (!connectionState?.currentTargetId && index === 0), tabId: item.id }));
+      const tabs = (await getTargets()).filter((item) => item.type === "page").map((item, index): TabInfo => ({
+        index,
+        url: item.url,
+        title: item.title,
+        active: item.id === connectionState?.currentTargetId || (!connectionState?.currentTargetId && index === 0),
+        targetId: item.id,
+      }));
       return ok(request.id, { tabs, activeIndex: tabs.findIndex((tab) => tab.active) });
     }
     case "tab_new": {
       const created = await browserCommand<{ targetId: string }>("Target.createTarget", { url: request.url ?? "about:blank", background: true });
-      return ok(request.id, { tabId: created.targetId, url: request.url ?? "about:blank" });
+      return ok(request.id, { targetId: created.targetId, url: request.url ?? "about:blank" });
     }
     case "tab_select": {
       const tabs = (await getTargets()).filter((item) => item.type === "page");
-      const selected = request.tabId !== undefined
-        ? tabs.find((item) => item.id === String(request.tabId) || Number(item.id) === request.tabId)
-        : tabs[request.index ?? 0];
+      const selected = request.targetId !== undefined
+        ? tabs.find((item) => item.id === request.targetId)
+        : request.tabId !== undefined
+          ? tabs.find((item) => Number(item.id) === request.tabId) ?? tabs[request.tabId]
+          : tabs[request.index ?? 0];
       if (!selected) return fail(request.id, "Tab not found");
+      await browserCommand("Target.activateTarget", { targetId: selected.id });
       setCurrentTargetId(selected.id);
       await attachTarget(selected.id);
-      return ok(request.id, { tabId: selected.id, url: selected.url, title: selected.title });
+      return ok(request.id, {
+        targetId: selected.id,
+        url: selected.url,
+        title: selected.title,
+        index: tabs.findIndex((item) => item.id === selected.id),
+      });
     }
     case "tab_close": {
       const tabs = (await getTargets()).filter((item) => item.type === "page");
-      const selected = request.tabId !== undefined
-        ? tabs.find((item) => item.id === String(request.tabId) || Number(item.id) === request.tabId)
-        : tabs[request.index ?? 0];
+      const selected = request.targetId !== undefined
+        ? tabs.find((item) => item.id === request.targetId)
+        : request.tabId !== undefined
+          ? tabs.find((item) => Number(item.id) === request.tabId) ?? tabs[request.tabId]
+          : tabs[request.index ?? 0];
       if (!selected) return fail(request.id, "Tab not found");
       await browserCommand("Target.closeTarget", { targetId: selected.id });
       connectionState?.refsByTarget.delete(selected.id);
@@ -1111,7 +1126,7 @@ async function dispatchRequest(request: Request): Promise<Response> {
         setCurrentTargetId(undefined);
       }
       clearPersistedRefs(selected.id);
-      return ok(request.id, { tabId: selected.id });
+      return ok(request.id, { targetId: selected.id });
     }
     case "frame": {
       if (!request.selector) return fail(request.id, "Missing selector parameter");

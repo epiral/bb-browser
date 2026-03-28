@@ -1396,16 +1396,24 @@ async function handleTabSelect(command: CommandEvent): Promise<CommandResult> {
       targetTab = found;
     }
 
-    // 激活标签页
-    await chrome.tabs.update(targetTab.id!, { active: true });
+    const targetTabId = targetTab.id!;
+
+    // 仅设置 active 不会把标签页所在窗口切到前台，后续命令仍可能落在旧窗口。
+    if (targetTab.windowId !== chrome.windows.WINDOW_ID_NONE) {
+      await chrome.windows.update(targetTab.windowId, { focused: true });
+    }
+
+    // 激活标签页，并回读最新状态用于响应输出。
+    const updatedTab = await chrome.tabs.update(targetTabId, { active: true });
 
     return {
       id: command.id,
       success: true,
       data: {
-        tabId: targetTab.id,
-        title: targetTab.title || '',
-        url: targetTab.url || '',
+        tabId: updatedTab.id,
+        title: updatedTab.title || '',
+        url: updatedTab.url || '',
+        index: updatedTab.index,
       },
     };
   } catch (error) {
