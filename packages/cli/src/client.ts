@@ -5,6 +5,9 @@
 import type { Request, Response } from "@bb-browser/shared";
 import { applyJq } from "./jq.js";
 import { sendCommand as sendCdpCommand } from "./cdp-client.js";
+import { monitorCommand } from "./monitor-manager.js";
+
+const MONITOR_ACTIONS = new Set(["network", "console", "errors", "trace"]);
 
 let jqExpression: string | undefined;
 
@@ -28,5 +31,13 @@ export function handleJqResponse(response: Response): void {
 }
 
 export async function sendCommand(request: Request): Promise<Response> {
+  if (MONITOR_ACTIONS.has(request.action)) {
+    try {
+      return await monitorCommand(request);
+    } catch {
+      // Fallback to direct CDP if monitor is unavailable
+      return sendCdpCommand(request);
+    }
+  }
   return sendCdpCommand(request);
 }

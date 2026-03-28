@@ -82,10 +82,18 @@ export function findBrowserExecutable(): string | null {
   }
 
   if (process.platform === "win32") {
+    const localAppData = process.env.LOCALAPPDATA ?? "";
     const candidates = [
       "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
       "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+      ...(localAppData ? [
+        `${localAppData}\\Google\\Chrome Dev\\Application\\chrome.exe`,
+        `${localAppData}\\Google\\Chrome SxS\\Application\\chrome.exe`,
+        `${localAppData}\\Google\\Chrome Beta\\Application\\chrome.exe`,
+      ] : []),
       "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+      "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+      "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
     ];
     return candidates.find((candidate) => existsSync(candidate)) ?? null;
   }

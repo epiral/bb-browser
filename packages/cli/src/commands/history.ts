@@ -7,6 +7,7 @@
  */
 
 import { getHistoryDomains, searchHistory } from "../history-sqlite.js";
+import { generateId } from "@bb-browser/shared";
 
 interface HistoryOptions {
   json?: boolean;
@@ -25,7 +26,7 @@ export async function historyCommand(
 
   if (options.json) {
     console.log(JSON.stringify({
-      id: crypto.randomUUID(),
+      id: generateId(),
       success: true,
       data,
     }));

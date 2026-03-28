@@ -19,6 +19,8 @@ const EXT_HINT = [
   "4. Click \"Load unpacked\" → select the unzipped folder",
 ].join("\n");
 
+const sessionOpenedTabs = new Set<string>();
+
 function getDaemonPath(): string {
   const currentDir = dirname(fileURLToPath(import.meta.url));
   const sameDirPath = resolve(currentDir, "daemon.js");
@@ -96,6 +98,49 @@ function textResult(value: unknown) {
 
 async function runCommand(request: Omit<Request, "id">) {
   return sendCommand({ id: generateId(), ...request });
+}
+
+function normalizeTabId(tabId: string | number | undefined): string | undefined {
+  if (typeof tabId === "string" && tabId) {
+    return tabId;
+  }
+  if (typeof tabId === "number" && Number.isFinite(tabId)) {
+    return String(tabId);
+  }
+  return undefined;
+}
+
+function buildTabSelector(tabId: string | number | undefined): Pick<Request, "tabId" | "targetId"> {
+  if (typeof tabId === "number" && Number.isFinite(tabId)) {
+    return { tabId };
+  }
+  if (typeof tabId === "string" && tabId) {
+    const numericTabId = Number(tabId);
+    if (Number.isFinite(numericTabId) && String(numericTabId) === tabId) {
+      return { tabId: numericTabId };
+    }
+    return { targetId: tabId };
+  }
+  return {};
+}
+
+function rememberSessionTab(tabId: string | number | undefined): void {
+  const normalizedTabId = normalizeTabId(tabId);
+  if (normalizedTabId) {
+    sessionOpenedTabs.add(normalizedTabId);
+  }
+}
+
+function forgetSessionTab(tabId: string | number | undefined): void {
+  const normalizedTabId = normalizeTabId(tabId);
+  if (normalizedTabId) {
+    sessionOpenedTabs.delete(normalizedTabId);
+  }
+}
+
+function rememberSessionTabFromResponse(data: Response["data"]): void {
+  if (!data) return;
+  rememberSessionTab(data.targetId ?? data.tabId);
 }
 
 function tryParseJson<T>(raw: string): T | null {
@@ -197,6 +242,7 @@ Key capabilities:
 - browser_network: Capture network requests/responses (API reverse engineering)
 - browser_screenshot: Visual page capture
 - browser_tab_list/tab_new: Multi-tab support — use tab parameter for concurrent operations
+- browser_close_all: Close tabs opened by bb-browser during the current MCP session
 
 Site adapters (pre-built commands for popular sites):
 - site_list/site_search/site_info: Discover available adapters and their signatures
@@ -276,6 +322,9 @@ server.tool(
   async ({ url, tab }) => {
     const resp = await runCommand({ action: "open", url, tabId: tab });
     if (!resp.success) return responseError(resp);
+    if (tab === undefined) {
+      rememberSessionTabFromResponse(resp.data);
+    }
     return textResult(resp.data || `Opened ${url}`);
   }
 );
@@ -300,6 +349,7 @@ server.tool(
   async ({ url }) => {
     const resp = await runCommand({ action: "tab_new", url });
     if (!resp.success) return responseError(resp);
+    rememberSessionTabFromResponse(resp.data);
     return textResult(resp.data || "Opened new tab");
   }
 );
@@ -419,7 +469,45 @@ server.tool(
   async ({ tab }) => {
     const resp = await runCommand({ action: tab === undefined ? "close" : "tab_close", tabId: tab });
     if (!resp.success) return responseError(resp);
+    forgetSessionTab(tab);
     return textResult(resp.data || "Closed tab");
+  }
+);
+
+server.tool(
+  "browser_close_all",
+  "Close tabs opened by bb-browser during the current MCP session",
+  {},
+  async () => {
+    const closedTabs: string[] = [];
+    const alreadyClosedTabs: string[] = [];
+    const failedTabs: Array<{ tabId: string; error: string }> = [];
+
+    for (const tabId of Array.from(sessionOpenedTabs)) {
+      const resp = await runCommand({ action: "tab_close", ...buildTabSelector(tabId) });
+      if (resp.success) {
+        sessionOpenedTabs.delete(tabId);
+        closedTabs.push(tabId);
+        continue;
+      }
+
+      const error = resp.error || "Unknown error";
+      if (/tab not found/i.test(error)) {
+        sessionOpenedTabs.delete(tabId);
+        alreadyClosedTabs.push(tabId);
+        continue;
+      }
+
+      sessionOpenedTabs.delete(tabId);
+      failedTabs.push({ tabId, error });
+    }
+
+    return textResult({
+      closedTabs,
+      alreadyClosedTabs,
+      failedTabs,
+      remainingTrackedTabs: Array.from(sessionOpenedTabs),
+    });
   }
 );
 

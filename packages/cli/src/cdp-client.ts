@@ -464,7 +464,7 @@ async function ensurePageTarget(targetRef?: string | number): Promise<CdpTargetI
   const targets = (await getTargets()).filter((target) => target.type === "page");
   if (targets.length === 0) throw new Error("No page target found");
 
-  const persistedTargetId = targetId === undefined ? connectionState?.currentTargetId : undefined;
+  const persistedTargetId = targetRef === undefined ? connectionState?.currentTargetId : undefined;
   let target: CdpTargetInfo | undefined;
   if (typeof targetRef === "number") {
     target = targets[targetRef] ?? targets.find((item) => Number(item.id) === targetRef);
@@ -618,13 +618,12 @@ function loadBuildDomTreeScript(): string {
 
 async function evaluate<T>(targetId: string, expression: string, returnByValue = true): Promise<T> {
   const result = await sessionCommand<{
-    result: { value?: T; objectId?: string };
+    result: { type?: string; value?: T; objectId?: string };
     exceptionDetails?: { text?: string; exception?: { description?: string } };
   }>(targetId, "Runtime.evaluate", {
     expression,
     awaitPromise: true,
     returnByValue,
-    replMode: true,
   });
   if (result.exceptionDetails) {
     throw new Error(
@@ -972,7 +971,7 @@ async function dispatchRequest(request: Request): Promise<Response> {
     case "open": {
       if (!request.url) return fail(request.id, "Missing url parameter");
       if (request.tabId === undefined && request.targetId === undefined) {
-        const created = await browserCommand<{ targetId: string }>("Target.createTarget", { url: request.url });
+        const created = await browserCommand<{ targetId: string }>("Target.createTarget", { url: request.url, background: true });
         const newTarget = await ensurePageTarget(created.targetId);
         return ok(request.id, { url: request.url, targetId: newTarget.id });
       }
@@ -1092,7 +1091,7 @@ async function dispatchRequest(request: Request): Promise<Response> {
       return ok(request.id, { tabs, activeIndex: tabs.findIndex((tab) => tab.active) });
     }
     case "tab_new": {
-      const created = await browserCommand<{ targetId: string }>("Target.createTarget", { url: request.url ?? "about:blank" });
+      const created = await browserCommand<{ targetId: string }>("Target.createTarget", { url: request.url ?? "about:blank", background: true });
       return ok(request.id, { targetId: created.targetId, url: request.url ?? "about:blank" });
     }
     case "tab_select": {

@@ -8,6 +8,7 @@ const packageJson = JSON.parse(
 export default defineConfig({
   entry: {
     cli: "packages/cli/src/index.ts",
+    "cdp-monitor": "packages/cli/src/cdp-monitor.ts",
     daemon: "packages/daemon/src/index.ts",
     mcp: "packages/mcp/src/index.ts",
   },

@@ -1,10 +1,20 @@
 {
   "manifest_version": 3,
   "name": "bb-browser",
-  "version": "0.5.2",
+  "version": "0.10.0",
   "description": "Browser automation for AI agents",
-  "permissions": ["tabs", "activeTab", "scripting", "debugger", "storage", "alarms", "history"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": [
+    "tabs",
+    "activeTab",
+    "scripting",
+    "debugger",
+    "storage",
+    "alarms",
+    "history"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "options_page": "options.html",
   "background": {
     "service_worker": "background.js",
@@ -12,15 +22,24 @@
   },
   "content_scripts": [
     {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["content/trace.js"],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content/trace.js"
+      ],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["buildDomTree.js"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "buildDomTree.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ]
 }

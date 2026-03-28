@@ -12,6 +12,9 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - name: Run release-please
         id: release
@@ -20,52 +23,10 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-      - name: Check out repository
-        if: ${{ steps.release.outputs.release_created == 'true' }}
-        uses: actions/checkout@v4
-
-      - name: Set up pnpm
-        if: ${{ steps.release.outputs.release_created == 'true' }}
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9.15.0
-
-      - name: Set up Node.js
-        if: ${{ steps.release.outputs.release_created == 'true' }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-          registry-url: https://registry.npmjs.org
-
-      - name: Install dependencies
-        if: ${{ steps.release.outputs.release_created == 'true' }}
-        run: pnpm install --frozen-lockfile
-
-      - name: Build release artifacts
-        if: ${{ steps.release.outputs.release_created == 'true' }}
-        run: pnpm build
-
-      - name: Package extension
-        if: ${{ steps.release.outputs.release_created == 'true' }}
-        run: |
-          cd extension
-          zip -r "../bb-browser-extension-${{ steps.release.outputs.tag_name }}.zip" .
-
-      - name: Upload extension asset
-        if: ${{ steps.release.outputs.release_created == 'true' }}
-        run: gh release upload "${{ steps.release.outputs.tag_name }}" "bb-browser-extension-${{ steps.release.outputs.tag_name }}.zip" --clobber
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish to npm
-        if: ${{ steps.release.outputs.release_created == 'true' }}
-        run: |
-          if [ -z "${NODE_AUTH_TOKEN}" ]; then
-            echo "NPM_TOKEN is not configured; skipping npm publish."
-            exit 0
-          fi
-
-          pnpm publish --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+  publish:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    uses: ./.github/workflows/publish.yml
+    with:
+      tag_name: ${{ needs.release-please.outputs.tag_name }}
+    secrets: inherit
