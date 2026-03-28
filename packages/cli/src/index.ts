@@ -36,6 +36,119 @@ declare const __BB_BROWSER_VERSION__: string;
 
 const VERSION = __BB_BROWSER_VERSION__;
 
+/**
+ * gstack 命令拦截：对支持的命令走 Electron IPC，跳过 Daemon。
+ * @returns true 表示已处理，false 表示回退到 Daemon/CDP。
+ */
+async function handleGstackCommand(
+  command: string,
+  args: string[],
+  flags: { json?: boolean },
+): Promise<boolean> {
+  const {
+    gstackGetTabs,
+    gstackOpenTab,
+    gstackNavigate,
+    gstackScreenshot,
+    gstackEvaluate,
+  } = await import("./gstack-bridge.js");
+
+  const outputJson = (data: unknown) =>
+    flags.json
+      ? console.log(JSON.stringify(data, null, 2))
+      : console.log(JSON.stringify(data));
+
+  try {
+    switch (command) {
+      case "open": {
+        const url = args[0];
+        if (!url) {
+          console.error("错误：缺少 URL 参数");
+          process.exit(1);
+        }
+        const result = gstackNavigate(url);
+        outputJson({ success: true, data: result });
+        return true;
+      }
+
+      case "screenshot": {
+        const result = gstackScreenshot();
+        if (!result.success) {
+          outputJson(result);
+          process.exit(1);
+        }
+        // 若给了输出路径，保存文件
+        const outputPath = args[0];
+        if (outputPath && result.data) {
+          const fs = await import("node:fs");
+          const path = await import("node:path");
+          const dir = path.dirname(path.resolve(outputPath));
+          fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(path.resolve(outputPath), Buffer.from(result.data, "base64"));
+          if (!flags.json) {
+            console.log(`截图已保存: ${path.resolve(outputPath)}`);
+            return true;
+          }
+        }
+        outputJson(result);
+        return true;
+      }
+
+      case "tab": {
+        const subOrIndex = args[0];
+        if (!subOrIndex || subOrIndex === "list") {
+          const tabs = gstackGetTabs();
+          outputJson({ success: true, data: { tabs } });
+        } else if (/^\d+$/.test(subOrIndex)) {
+          // tab select — gstack IPC 目前只有单 automationView，直接返回当前
+          const tabs = gstackGetTabs();
+          outputJson({ success: true, data: { tabs, selected: Number(subOrIndex) } });
+        } else {
+          return false; // new, close 等子命令回退 Daemon
+        }
+        return true;
+      }
+
+      case "eval": {
+        const script = args[0];
+        if (!script) {
+          console.error("错误：缺少 script 参数");
+          process.exit(1);
+        }
+        const result = gstackEvaluate("default", script);
+        outputJson({ success: true, data: { result } });
+        return true;
+      }
+
+      case "back":
+      case "forward":
+      case "refresh": {
+        // 通过 evaluate 实现导航
+        const navJs: Record<string, string> = {
+          back: "history.back()",
+          forward: "history.forward()",
+          refresh: "location.reload()",
+        };
+        gstackEvaluate("default", navJs[command]!);
+        outputJson({ success: true });
+        return true;
+      }
+
+      // click, fill, snapshot 等需要 Playwright 的命令不拦截
+      default:
+        return false;
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (flags.json) {
+      console.log(JSON.stringify({ success: false, error: msg }));
+    } else {
+      console.error(`gstack 错误: ${msg}`);
+    }
+    process.exit(1);
+  }
+}
+
 const HELP_TEXT = `
 bb-browser - AI Agent 浏览器自动化工具
 
@@ -95,6 +208,7 @@ bb-browser - AI Agent 浏览器自动化工具
   --json               以 JSON 格式输出
   --port <n>           指定 Chrome CDP 端口
   --openclaw           优先复用 OpenClaw 浏览器实例
+  --gstack             优先复用 GStack Desktop 浏览器实例（Electron IPC）
   --jq <expr>          对 JSON 输出应用 jq 过滤（直接作用于数据，跳过 id/success 信封）
   -i, --interactive    只输出可交互元素（snapshot 命令）
   -c, --compact        移除空结构节点（snapshot 命令）
@@ -121,6 +235,7 @@ interface ParsedArgs {
     days?: number;
     jq?: string;
     openclaw?: boolean;
+    gstack?: boolean;
     port?: number;
   };
 }
@@ -160,6 +275,8 @@ function parseArgs(argv: string[]): ParsedArgs {
       }
     } else if (arg === "--openclaw") {
       result.flags.openclaw = true;
+    } else if (arg === "--gstack") {
+      result.flags.gstack = true;
     } else if (arg === "--port") {
       skipNext = true;
       const nextIdx = args.indexOf(arg) + 1;
@@ -219,9 +336,16 @@ async function main(): Promise<void> {
 
   // 解析全局 --tab 参数
   const tabArgIdx = process.argv.indexOf('--tab');
-  const globalTabId = tabArgIdx >= 0 && process.argv[tabArgIdx + 1]
-    ? parseInt(process.argv[tabArgIdx + 1], 10)
+  const globalTabRaw = tabArgIdx >= 0 && process.argv[tabArgIdx + 1]
+    ? process.argv[tabArgIdx + 1]
     : undefined;
+  const globalTabId = globalTabRaw === undefined
+    ? undefined
+    : Number(globalTabRaw);
+  if (globalTabId !== undefined && Number.isNaN(globalTabId)) {
+    console.error(`Invalid --tab value: ${globalTabRaw}`);
+    process.exit(1);
+  }
 
   // 处理全局选项
   if (parsed.flags.version) {
@@ -240,6 +364,14 @@ async function main(): Promise<void> {
   if (parsed.flags.help || !parsed.command) {
     console.log(HELP_TEXT);
     return;
+  }
+
+  // ── gstack 拦截层 ──
+  // 当 --gstack 传入时，对支持的命令直接走 gstack-bridge（Electron IPC），跳过 Daemon。
+  if (parsed.flags.gstack && parsed.command) {
+    const handled = await handleGstackCommand(parsed.command, parsed.args, parsed.flags);
+    if (handled) return;
+    // 未处理的命令回退到 Daemon/CDP 路径
   }
 
   // 路由到对应命令
@@ -608,6 +740,7 @@ async function main(): Promise<void> {
           days: parsed.flags.days,
           tabId: globalTabId,
           openclaw: parsed.flags.openclaw,
+          gstack: parsed.flags.gstack,
         });
         break;
       }

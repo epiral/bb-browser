@@ -14,7 +14,7 @@ import { getSiteHintForDomain } from "./site.js";
 
 export interface OpenOptions {
   json?: boolean;
-  tab?: string;  // "current" | tabId 数字字符串 | undefined（新建 tab）
+  tab?: string;  // "current" | tabId（数字或字符串）| undefined（新建 tab）
 }
 
 export async function openCommand(
@@ -48,11 +48,8 @@ export async function openCommand(
       // 使用当前活动 tab
       (request as Record<string, unknown>).tabId = "current";
     } else {
-      // 使用指定 tabId
-      const tabId = parseInt(options.tab, 10);
-      if (isNaN(tabId)) {
-        throw new Error(`无效的 tabId: ${options.tab}`);
-      }
+      // 使用指定 tabId（兼容数字索引与字符串/UUID/hex id）
+      const tabId = /^\d+$/.test(options.tab) ? Number(options.tab) : options.tab;
       (request as Record<string, unknown>).tabId = tabId;
     }
   }
