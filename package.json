@@ -1,5 +1,5 @@
 {
-  "name": "bb-browser",
+  "name": "@pinix/browser",
   "version": "0.10.1",
   "description": "Your browser is the API. CLI + MCP server for AI agents to control Chrome with your login state.",
   "type": "module",

@@ -5,8 +5,11 @@ import { createGrpcTransport } from "@connectrpc/connect-node";
 import { fileDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import { COMMAND_TIMEOUT } from "../packages/shared/src/constants.ts";
 import { readFileSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
+import * as path from "node:path";
 
 declare const process: {
   argv: string[];
@@ -424,12 +427,86 @@ function discoverCdpPort(): number {
   }
 }
 
+async function canConnect(port: number): Promise<boolean> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/json/version`);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+function findBrowserExecutable(): string | null {
+  const candidates = process.platform === "darwin"
+    ? [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+      ]
+    : [
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/chromium",
+        "/usr/bin/microsoft-edge",
+      ];
+  for (const p of candidates) {
+    try { readFileSync(p); return p; } catch {}
+  }
+  return null;
+}
+
+async function launchManagedBrowser(port: number): Promise<boolean> {
+  const executable = findBrowserExecutable();
+  if (!executable) {
+    console.log("[bb-browserd] No browser executable found, cannot auto-launch");
+    return false;
+  }
+  const userDataDir = join(homedir(), ".bb-browser", "browser", "chrome-data");
+  await mkdir(userDataDir, { recursive: true });
+  console.log(`[bb-browserd] Launching browser: ${path.basename(executable)} on port ${port}`);
+  try {
+    const child = spawn(executable, [
+      `--remote-debugging-port=${port}`,
+      `--user-data-dir=${userDataDir}`,
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-sync",
+      "about:blank",
+    ], { detached: true, stdio: "ignore" });
+    child.unref();
+  } catch {
+    return false;
+  }
+  // Wait for CDP to be ready
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    if (await canConnect(port)) {
+      await mkdir(join(homedir(), ".bb-browser", "browser"), { recursive: true });
+      await writeFile(join(homedir(), ".bb-browser", "browser", "cdp-port"), String(port), "utf8");
+      console.log(`[bb-browserd] Browser launched, CDP ready on port ${port}`);
+      return true;
+    }
+    await new Promise(r => setTimeout(r, 300));
+  }
+  console.log("[bb-browserd] Browser launched but CDP not ready within timeout");
+  return false;
+}
+
 async function ensureCdp(): Promise<void> {
   if (cdpSocket && cdpSocket.readyState === WebSocket.OPEN && cdpSessionId) {
     return;
   }
 
   const port = discoverCdpPort();
+  if (!await canConnect(port)) {
+    // Auto-launch browser
+    const launched = await launchManagedBrowser(port);
+    if (!launched) {
+      throw new Error(`Chrome not reachable at port ${port} and auto-launch failed`);
+    }
+  }
   const versionRes = await fetch(`http://127.0.0.1:${port}/json/version`);
   if (!versionRes.ok) {
     throw new Error(`Chrome not reachable at port ${port}`);
