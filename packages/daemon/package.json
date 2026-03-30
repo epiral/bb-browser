@@ -11,6 +11,7 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
+    "lint": "eslint src tsup.config.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

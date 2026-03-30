@@ -97,6 +97,35 @@ let errorsEnabled = false;
 let traceRecording = false;
 const traceEvents: TraceEvent[] = [];
 
+function getContextFilePath(host: string, port: number): string {
+  const safeHost = host.replace(/[^a-zA-Z0-9_.-]/g, "_");
+  return path.join(os.tmpdir(), `bb-browser-cdp-context-${safeHost}-${port}.json`);
+}
+
+function loadPersistedCurrentTargetId(host: string, port: number): string | undefined {
+  try {
+    const data = JSON.parse(readFileSync(getContextFilePath(host, port), "utf-8")) as {
+      currentTargetId?: unknown;
+    };
+    return typeof data.currentTargetId === "string" && data.currentTargetId ? data.currentTargetId : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function persistCurrentTargetId(host: string, port: number, currentTargetId?: string): void {
+  try {
+    writeFileSync(getContextFilePath(host, port), JSON.stringify({ currentTargetId }));
+  } catch {}
+}
+
+function setCurrentTargetId(targetId?: string): void {
+  const state = connectionState;
+  if (!state) return;
+  state.currentTargetId = targetId;
+  persistCurrentTargetId(state.host, state.port, targetId);
+}
+
 function buildRequestError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
@@ -165,6 +194,7 @@ function createState(host: string, port: number, browserWsUrl: string, browserSo
     sessions: new Map(),
     attachedTargets: new Map(),
     refsByTarget: new Map(),
+    currentTargetId: loadPersistedCurrentTargetId(host, port),
     activeFrameIdByTarget: new Map(),
     dialogHandlers: new Map(),
   };
@@ -204,6 +234,10 @@ function createState(host: string, port: number, browserWsUrl: string, browserSo
           state.attachedTargets.delete(sessionId);
           state.activeFrameIdByTarget.delete(targetId);
           state.dialogHandlers.delete(targetId);
+          if (state.currentTargetId === targetId) {
+            state.currentTargetId = undefined;
+            persistCurrentTargetId(state.host, state.port, undefined);
+          }
         }
       }
       return;
@@ -440,8 +474,24 @@ async function getTargets(): Promise<CdpTargetInfo[]> {
 
 async function ensurePageTarget(targetId?: string | number): Promise<CdpTargetInfo> {
   const targets = (await getTargets()).filter((target) => target.type === "page");
-  const target = selectPageTarget(targets, targetId);
-  connectionState!.currentTargetId = target.id;
+  if (targets.length === 0) throw new Error("No page target found");
+  const persistedTargetId = targetId === undefined ? connectionState?.currentTargetId : undefined;
+  let target: CdpTargetInfo | undefined;
+  if (typeof targetId === "number") {
+    target = targets[targetId] ?? targets.find((item) => Number(item.id) === targetId);
+  } else if (typeof targetId === "string") {
+    target = targets.find((item) => item.id === targetId);
+    if (!target) {
+      const numericTargetId = Number(targetId);
+      if (!Number.isNaN(numericTargetId)) {
+        target = targets[numericTargetId] ?? targets.find((item) => Number(item.id) === numericTargetId);
+      }
+    }
+  } else if (persistedTargetId) {
+    target = targets.find((item) => item.id === persistedTargetId);
+  }
+  target ??= targets[0];
+  setCurrentTargetId(target.id);
   await attachTarget(target.id);
   return target;
 }
@@ -578,13 +628,20 @@ function loadBuildDomTreeScript(): string {
 }
 
 async function evaluate<T>(targetId: string, expression: string, returnByValue = true): Promise<T> {
-  const result = await sessionCommand<{ result: { value?: T; objectId?: string }; exceptionDetails?: { text?: string } }>(targetId, "Runtime.evaluate", {
+  const result = await sessionCommand<{
+    result: { type?: string; value?: T; objectId?: string };
+    exceptionDetails?: { text?: string; exception?: { description?: string } };
+  }>(targetId, "Runtime.evaluate", {
     expression,
     awaitPromise: true,
     returnByValue,
   });
   if (result.exceptionDetails) {
-    throw new Error(result.exceptionDetails.text || "Runtime.evaluate failed");
+    throw new Error(
+      result.exceptionDetails.exception?.description
+      || result.exceptionDetails.text
+      || "Runtime.evaluate failed",
+    );
   }
   return (result.result.value ?? result.result) as T;
 }
@@ -605,42 +662,85 @@ async function insertTextIntoNode(targetId: string, backendNodeId: number, text:
 
   await sessionCommand(targetId, "Runtime.callFunctionOn", {
     objectId: resolved.object.objectId,
-    functionDeclaration: `function(value, clearFirst) {
-      if (typeof this.focus === 'function') this.focus();
-      if (clearFirst && ('value' in this)) {
-        this.value = '';
-        this.dispatchEvent(new Event('input', { bubbles: true }));
+    functionDeclaration: `function(clearFirst) {
+      if (typeof this.scrollIntoView === 'function') {
+        this.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
       }
-      if ('value' in this) {
-        this.value = clearFirst ? value : String(this.value ?? '') + value;
-        this.dispatchEvent(new Event('input', { bubbles: true }));
-        this.dispatchEvent(new Event('change', { bubbles: true }));
+      if (typeof this.focus === 'function') this.focus();
+      if (this instanceof HTMLInputElement || this instanceof HTMLTextAreaElement) {
+        if (clearFirst) {
+          this.value = '';
+          this.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        if (typeof this.setSelectionRange === 'function') {
+          const end = this.value.length;
+          this.setSelectionRange(end, end);
+        }
+        return true;
+      }
+      if (this instanceof HTMLElement && this.isContentEditable) {
+        if (clearFirst) {
+          this.textContent = '';
+          this.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        const selection = window.getSelection();
+        if (selection) {
+          const range = document.createRange();
+          range.selectNodeContents(this);
+          range.collapse(false);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }
         return true;
       }
       return false;
     }`,
     arguments: [
-      { value: text },
       { value: clearFirst },
     ],
     returnByValue: true,
   });
 
-  await focusNode(targetId, backendNodeId);
-  await sessionCommand(targetId, "Input.insertText", { text });
+  if (text) {
+    await focusNode(targetId, backendNodeId);
+    await sessionCommand(targetId, "Input.insertText", { text });
+  }
 }
 
-async function getNodeBox(targetId: string, backendNodeId: number): Promise<{ x: number; y: number }> {
-  const result = await sessionCommand<{ model: { content: number[]; border: number[] } }>(targetId, "DOM.getBoxModel", {
-    backendNodeId,
+async function getInteractablePoint(targetId: string, backendNodeId: number): Promise<{ x: number; y: number }> {
+  const resolved = await sessionCommand<{ object: { objectId: string } }>(targetId, "DOM.resolveNode", { backendNodeId });
+  const call = await sessionCommand<{
+    result: { value?: { x?: number; y?: number } };
+    exceptionDetails?: { text?: string };
+  }>(targetId, "Runtime.callFunctionOn", {
+    objectId: resolved.object.objectId,
+    functionDeclaration: `function() {
+      if (!(this instanceof Element)) {
+        throw new Error('Ref does not resolve to an element');
+      }
+      this.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
+      const rect = this.getBoundingClientRect();
+      if (!rect || rect.width <= 0 || rect.height <= 0) {
+        throw new Error('Element is not visible');
+      }
+      return {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      };
+    }`,
+    returnByValue: true,
   });
-  const quad = result.model.content.length >= 8 ? result.model.content : result.model.border;
-  const xs = [quad[0], quad[2], quad[4], quad[6]];
-  const ys = [quad[1], quad[3], quad[5], quad[7]];
-  return {
-    x: xs.reduce((a, b) => a + b, 0) / xs.length,
-    y: ys.reduce((a, b) => a + b, 0) / ys.length,
-  };
+
+  if (call.exceptionDetails) {
+    throw new Error(call.exceptionDetails.text || "Failed to resolve element point");
+  }
+
+  const point = call.result.value;
+  if (!point || typeof point.x !== "number" || typeof point.y !== "number" || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+    throw new Error("Failed to resolve element point");
+  }
+
+  return point as { x: number; y: number };
 }
 
 async function mouseClick(targetId: string, x: number, y: number): Promise<void> {
@@ -650,9 +750,14 @@ async function mouseClick(targetId: string, x: number, y: number): Promise<void>
 }
 
 async function getAttributeValue(targetId: string, backendNodeId: number, attribute: string): Promise<string> {
-  const nodeId = await resolveNode(targetId, backendNodeId);
   if (attribute === "text") {
-    return evaluate<string>(targetId, `(() => { const n = this; return n.innerText ?? n.textContent ?? ''; }).call(document.querySelector('[data-bb-node-id="${nodeId}"]'))`);
+    const resolved = await sessionCommand<{ object: { objectId: string } }>(targetId, "DOM.resolveNode", { backendNodeId });
+    const call = await sessionCommand<{ result: { value: string } }>(targetId, "Runtime.callFunctionOn", {
+      objectId: resolved.object.objectId,
+      functionDeclaration: `function() { return (this instanceof HTMLElement ? this.innerText : this.textContent || '').trim(); }`,
+      returnByValue: true,
+    });
+    return String(call.result.value ?? "");
   }
   const result = await sessionCommand<{ object: { objectId: string } }>(targetId, "DOM.resolveNode", { backendNodeId });
   const call = await sessionCommand<{ result: { value: string } }>(targetId, "Runtime.callFunctionOn", {
@@ -990,7 +1095,7 @@ async function dispatchRequest(request: Request): Promise<Response> {
     case "open": {
       if (!request.url) return fail(request.id, "Missing url parameter");
       if (request.tabId === undefined) {
-        const created = await browserCommand<{ targetId: string }>("Target.createTarget", { url: request.url });
+        const created = await browserCommand<{ targetId: string }>("Target.createTarget", { url: request.url, background: true });
         const newTarget = await ensurePageTarget(created.targetId);
         return ok(request.id, { url: request.url, tabId: newTarget.id });
       }
@@ -1007,7 +1112,7 @@ async function dispatchRequest(request: Request): Promise<Response> {
     case "hover": {
       if (!request.ref) return fail(request.id, "Missing ref parameter");
       const backendNodeId = await parseRef(request.ref);
-      const point = await getNodeBox(target.id, backendNodeId);
+      const point = await getInteractablePoint(target.id, backendNodeId);
       await sessionCommand(target.id, "Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y, button: "none" });
       if (request.action === "click") await mouseClick(target.id, point.x, point.y);
       return ok(request.id, {});
@@ -1043,7 +1148,14 @@ async function dispatchRequest(request: Request): Promise<Response> {
       return ok(request.id, { value: request.value });
     }
     case "get": {
-      if (!request.ref || !request.attribute) return fail(request.id, "Missing ref or attribute parameter");
+      if (!request.attribute) return fail(request.id, "Missing attribute parameter");
+      if (request.attribute === "url" && !request.ref) {
+        return ok(request.id, { value: await evaluate<string>(target.id, "location.href", true) });
+      }
+      if (request.attribute === "title" && !request.ref) {
+        return ok(request.id, { value: await evaluate<string>(target.id, "document.title", true) });
+      }
+      if (!request.ref) return fail(request.id, "Missing ref parameter");
       const value = await getAttributeValue(target.id, await parseRef(request.ref), request.attribute);
       return ok(request.id, { value });
     }
@@ -1097,7 +1209,7 @@ async function dispatchRequest(request: Request): Promise<Response> {
       return ok(request.id, { tabs, activeIndex: tabs.findIndex((tab) => tab.active) });
     }
     case "tab_new": {
-      const created = await browserCommand<{ targetId: string }>("Target.createTarget", { url: request.url ?? "about:blank" });
+      const created = await browserCommand<{ targetId: string }>("Target.createTarget", { url: request.url ?? "about:blank", background: true });
       return ok(request.id, { tabId: created.targetId, url: request.url ?? "about:blank" });
     }
     case "tab_select": {
@@ -1106,7 +1218,7 @@ async function dispatchRequest(request: Request): Promise<Response> {
         ? tabs.find((item) => item.id === String(request.tabId) || Number(item.id) === request.tabId)
         : tabs[request.index ?? 0];
       if (!selected) return fail(request.id, "Tab not found");
-      connectionState!.currentTargetId = selected.id;
+      setCurrentTargetId(selected.id);
       await attachTarget(selected.id);
       return ok(request.id, { tabId: selected.id, url: selected.url, title: selected.title });
     }
@@ -1118,6 +1230,9 @@ async function dispatchRequest(request: Request): Promise<Response> {
       if (!selected) return fail(request.id, "Tab not found");
       await browserCommand("Target.closeTarget", { targetId: selected.id });
       connectionState?.refsByTarget.delete(selected.id);
+      if (connectionState?.currentTargetId === selected.id) {
+        setCurrentTargetId(undefined);
+      }
       clearPersistedRefs(selected.id);
       return ok(request.id, { tabId: selected.id });
     }

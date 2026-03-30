@@ -1,16 +1,38 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
-import { resolve } from 'path';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
+
+const packageJson = JSON.parse(
+  readFileSync(resolve(__dirname, '../../package.json'), 'utf8'),
+) as { version: string };
+
+const manifest = JSON.parse(
+  readFileSync(resolve(__dirname, 'manifest.json'), 'utf8'),
+) as Record<string, unknown>;
 
 export default defineConfig({
   publicDir: 'public',
   plugins: [
+    {
+      name: 'sync-extension-manifest-version',
+      generateBundle() {
+        this.emitFile({
+          type: 'asset',
+          fileName: 'manifest.json',
+          source: `${JSON.stringify(
+            {
+              ...manifest,
+              version: packageJson.version,
+            },
+            null,
+            2,
+          )}\n`,
+        });
+      },
+    },
     viteStaticCopy({
       targets: [
-        {
-          src: 'manifest.json',
-          dest: '.',
-        },
         {
           src: 'options.html',
           dest: '.',

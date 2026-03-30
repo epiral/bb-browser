@@ -2,11 +2,13 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { DAEMON_BASE_URL, COMMAND_TIMEOUT, generateId } from "@bb-browser/shared";
 import type { Request, Response } from "@bb-browser/shared";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
+
+declare const __BB_BROWSER_VERSION__: string;
 
 const EXT_HINT = [
   "Chrome extension not connected.",
@@ -17,11 +19,20 @@ const EXT_HINT = [
   "4. Click \"Load unpacked\" → select the unzipped folder",
 ].join("\n");
 
+const sessionOpenedTabs = new Set<string>();
+
 function getDaemonPath(): string {
   const currentDir = dirname(fileURLToPath(import.meta.url));
   const sameDirPath = resolve(currentDir, "daemon.js");
   if (existsSync(sameDirPath)) return sameDirPath;
   return resolve(currentDir, "../../daemon/dist/index.js");
+}
+
+function getCliPath(): string {
+  const currentDir = dirname(fileURLToPath(import.meta.url));
+  const sameDirPath = resolve(currentDir, "cli.js");
+  if (existsSync(sameDirPath)) return sameDirPath;
+  return resolve(currentDir, "../../cli/dist/index.js");
 }
 
 async function isDaemonRunning(): Promise<boolean> {
@@ -89,8 +100,123 @@ async function runCommand(request: Omit<Request, "id">) {
   return sendCommand({ id: generateId(), ...request });
 }
 
+function normalizeTabId(tabId: string | number | undefined): string | undefined {
+  if (typeof tabId === "string" && tabId) {
+    return tabId;
+  }
+  if (typeof tabId === "number" && Number.isFinite(tabId)) {
+    return String(tabId);
+  }
+  return undefined;
+}
+
+function rememberSessionTab(tabId: string | number | undefined): void {
+  const normalizedTabId = normalizeTabId(tabId);
+  if (normalizedTabId) {
+    sessionOpenedTabs.add(normalizedTabId);
+  }
+}
+
+function forgetSessionTab(tabId: string | number | undefined): void {
+  const normalizedTabId = normalizeTabId(tabId);
+  if (normalizedTabId) {
+    sessionOpenedTabs.delete(normalizedTabId);
+  }
+}
+
+function rememberSessionTabFromResponse(data: Response["data"]): void {
+  if (!data) return;
+  rememberSessionTab((data as Response["data"] & { tabId?: string | number }).tabId);
+}
+
+function tryParseJson<T>(raw: string): T | null {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {}
+
+  const lines = trimmed.split(/\r?\n/);
+  for (let end = lines.length; end > 0; end -= 1) {
+    for (let start = end - 1; start >= 0; start -= 1) {
+      const candidate = lines.slice(start, end).join("\n").trim();
+      if (!candidate) {
+        continue;
+      }
+
+      try {
+        return JSON.parse(candidate) as T;
+      } catch {}
+    }
+  }
+
+  return null;
+}
+
+function formatSiteCliError(value: unknown, stderr: string, stdout: string): string {
+  if (value && typeof value === "object" && "error" in value && typeof value.error === "string") {
+    const lines = [value.error];
+
+    if ("hint" in value && typeof value.hint === "string" && value.hint) {
+      lines.push(`Hint: ${value.hint}`);
+    }
+    if ("action" in value && typeof value.action === "string" && value.action) {
+      lines.push(`Action: ${value.action}`);
+    }
+    if ("reportHint" in value && typeof value.reportHint === "string" && value.reportHint) {
+      lines.push(`Report: ${value.reportHint}`);
+    }
+    if ("suggestions" in value && Array.isArray(value.suggestions) && value.suggestions.length > 0) {
+      lines.push(`Suggestions: ${value.suggestions.join(", ")}`);
+    }
+
+    return lines.join("\n");
+  }
+
+  const fallback = [stderr.trim(), stdout.trim()].find(Boolean);
+  return fallback || "bb-browser site command failed";
+}
+
+async function runSiteCli(args: string[]): Promise<unknown> {
+  const cliPath = getCliPath();
+
+  const result = await new Promise<{ ok: boolean; stdout: string; stderr: string }>((resolvePromise) => {
+    execFile(
+      process.execPath,
+      [cliPath, "site", ...args],
+      {
+        encoding: "utf8",
+        timeout: COMMAND_TIMEOUT,
+        maxBuffer: 10 * 1024 * 1024,
+      },
+      (error, stdout, stderr) => {
+        resolvePromise({
+          ok: !error,
+          stdout,
+          stderr,
+        });
+      },
+    );
+  });
+
+  const parsed = tryParseJson<unknown>(result.stdout);
+
+  if (parsed && typeof parsed === "object" && parsed !== null && "success" in parsed && parsed.success === false) {
+    throw new Error(formatSiteCliError(parsed, result.stderr, result.stdout));
+  }
+
+  if (!result.ok) {
+    throw new Error(formatSiteCliError(parsed, result.stderr, result.stdout));
+  }
+
+  return parsed ?? result.stdout.trim();
+}
+
 const server = new McpServer(
-  { name: "bb-browser", version: "0.4.0" },
+  { name: "bb-browser", version: __BB_BROWSER_VERSION__ },
   { instructions: `bb-browser lets you control the user's real Chrome browser — with their login state, cookies, and sessions.
 
 Your browser is the API. No headless browser, no cookie extraction, no anti-bot bypass.
@@ -102,12 +228,14 @@ Key capabilities:
 - browser_network: Capture network requests/responses (API reverse engineering)
 - browser_screenshot: Visual page capture
 - browser_tab_list/tab_new: Multi-tab support — use tab parameter for concurrent operations
+- browser_close_all: Close tabs opened by bb-browser during the current MCP session
 
 Site adapters (pre-built commands for popular sites):
-- Run via CLI: bb-browser site <name> [args]
+- site_list/site_search/site_info: Discover available adapters and their signatures
+- site_recommend: Suggest adapters based on browsing history
+- site_run: Execute an adapter directly from MCP
+- site_update: Pull the community adapter repository
 - Available: reddit, twitter, github, hackernews, xiaohongshu, zhihu, bilibili, weibo, douban, youtube
-- Update: bb-browser site update
-- List all: bb-browser site list
 
 To create a new site adapter, run: bb-browser guide` },
 );
@@ -180,6 +308,9 @@ server.tool(
   async ({ url, tab }) => {
     const resp = await runCommand({ action: "open", url, tabId: tab });
     if (!resp.success) return responseError(resp);
+    if (tab === undefined) {
+      rememberSessionTabFromResponse(resp.data);
+    }
     return textResult(resp.data || `Opened ${url}`);
   }
 );
@@ -204,6 +335,7 @@ server.tool(
   async ({ url }) => {
     const resp = await runCommand({ action: "tab_new", url });
     if (!resp.success) return responseError(resp);
+    rememberSessionTabFromResponse(resp.data);
     return textResult(resp.data || "Opened new tab");
   }
 );
@@ -323,7 +455,45 @@ server.tool(
   async ({ tab }) => {
     const resp = await runCommand({ action: tab === undefined ? "close" : "tab_close", tabId: tab });
     if (!resp.success) return responseError(resp);
+    forgetSessionTab(tab);
     return textResult(resp.data || "Closed tab");
+  }
+);
+
+server.tool(
+  "browser_close_all",
+  "Close tabs opened by bb-browser during the current MCP session",
+  {},
+  async () => {
+    const closedTabs: string[] = [];
+    const alreadyClosedTabs: string[] = [];
+    const failedTabs: Array<{ tabId: string; error: string }> = [];
+
+    for (const tabId of Array.from(sessionOpenedTabs)) {
+      const resp = await runCommand({ action: "tab_close", tabId });
+      if (resp.success) {
+        sessionOpenedTabs.delete(tabId);
+        closedTabs.push(tabId);
+        continue;
+      }
+
+      const error = resp.error || "Unknown error";
+      if (/tab not found/i.test(error)) {
+        sessionOpenedTabs.delete(tabId);
+        alreadyClosedTabs.push(tabId);
+        continue;
+      }
+
+      sessionOpenedTabs.delete(tabId);
+      failedTabs.push({ tabId, error });
+    }
+
+    return textResult({
+      closedTabs,
+      alreadyClosedTabs,
+      failedTabs,
+      remainingTrackedTabs: Array.from(sessionOpenedTabs),
+    });
   }
 );
 
@@ -352,6 +522,125 @@ server.tool(
     const resp = await runCommand({ action: "wait", waitType: "time", ms: time, tabId: tab });
     if (!resp.success) return responseError(resp);
     return textResult(resp.data || `Waited ${time}ms`);
+  }
+);
+
+server.tool(
+  "site_list",
+  "List installed site adapters",
+  {},
+  async () => {
+    try {
+      const result = await runSiteCli(["list", "--json"]);
+      return textResult(result);
+    } catch (error) {
+      return errorResult(error instanceof Error ? error.message : String(error));
+    }
+  }
+);
+
+server.tool(
+  "site_search",
+  "Search installed site adapters by name, description, or domain",
+  {
+    query: z.string().describe("Search query"),
+  },
+  async ({ query }) => {
+    try {
+      const result = await runSiteCli(["search", query, "--json"]);
+      return textResult(result);
+    } catch (error) {
+      return errorResult(error instanceof Error ? error.message : String(error));
+    }
+  }
+);
+
+server.tool(
+  "site_info",
+  "Get adapter metadata including args, example, and domain",
+  {
+    name: z.string().describe("Adapter name, e.g. twitter/search"),
+  },
+  async ({ name }) => {
+    try {
+      const result = await runSiteCli(["info", name, "--json"]);
+      return textResult(result);
+    } catch (error) {
+      return errorResult(error instanceof Error ? error.message : String(error));
+    }
+  }
+);
+
+server.tool(
+  "site_recommend",
+  "Recommend adapters based on recent browsing history",
+  {
+    days: z.number().int().positive().optional().describe("How many recent days of history to inspect"),
+  },
+  async ({ days }) => {
+    try {
+      const args = ["recommend", "--json"];
+      if (days !== undefined) {
+        args.push("--days", String(days));
+      }
+      const result = await runSiteCli(args);
+      return textResult(result);
+    } catch (error) {
+      return errorResult(error instanceof Error ? error.message : String(error));
+    }
+  }
+);
+
+server.tool(
+  "site_run",
+  "Run a site adapter and return its structured data",
+  {
+    name: z.string().describe("Adapter name, e.g. twitter/search"),
+    args: z.array(z.string()).optional().describe("Positional arguments in adapter-defined order"),
+    namedArgs: z.record(z.string()).optional().describe("Named adapter arguments passed as --key value"),
+    tab: z.number().optional().describe("Optional tab ID to target"),
+    openclaw: z.boolean().optional().describe("Prefer the OpenClaw browser instead of the extension flow"),
+  },
+  async ({ name, args, namedArgs, tab, openclaw }) => {
+    try {
+      const cliArgs = ["run", name];
+
+      for (const arg of args || []) {
+        cliArgs.push(arg);
+      }
+
+      for (const [key, value] of Object.entries(namedArgs || {})) {
+        cliArgs.push(`--${key}`, value);
+      }
+
+      if (tab !== undefined) {
+        cliArgs.push("--tab", String(tab));
+      }
+      if (openclaw) {
+        cliArgs.push("--openclaw");
+      }
+      cliArgs.push("--json");
+
+      const result = await runSiteCli(cliArgs);
+      const unwrapped = result && typeof result === "object" && "data" in result ? result.data : result;
+      return textResult(unwrapped);
+    } catch (error) {
+      return errorResult(error instanceof Error ? error.message : String(error));
+    }
+  }
+);
+
+server.tool(
+  "site_update",
+  "Pull or clone the community adapter repository",
+  {},
+  async () => {
+    try {
+      const result = await runSiteCli(["update", "--json"]);
+      return textResult(result);
+    } catch (error) {
+      return errorResult(error instanceof Error ? error.message : String(error));
+    }
   }
 );
 

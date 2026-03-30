@@ -2,6 +2,7 @@
  * errors 命令 - 查看 JS 错误
  */
 
+import { generateId } from "@bb-browser/shared";
 import { sendCommand } from "../client.js";
 
 interface ErrorsOptions {
@@ -12,7 +13,7 @@ interface ErrorsOptions {
 
 export async function errorsCommand(options: ErrorsOptions = {}): Promise<void> {
   const response = await sendCommand({
-    id: crypto.randomUUID(),
+    id: generateId(),
     action: "errors",
     errorsCommand: options.clear ? "clear" : "get",
     tabId: options.tabId,

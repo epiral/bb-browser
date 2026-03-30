@@ -5,7 +5,8 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsup",
-    "dev": "tsup --watch"
+    "dev": "tsup --watch",
+    "lint": "eslint src tsup.config.ts"
   },
   "dependencies": {
     "@bb-browser/shared": "workspace:*",

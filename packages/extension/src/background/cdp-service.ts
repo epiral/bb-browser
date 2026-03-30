@@ -289,6 +289,7 @@ export async function evaluate(
     expression,
     returnByValue: options.returnByValue ?? true,
     awaitPromise: options.awaitPromise ?? true,
+    replMode: true,
   });
 
   if (result.exceptionDetails) {

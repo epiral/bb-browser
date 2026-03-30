@@ -30,9 +30,12 @@ import { traceCommand } from "./commands/trace.js";
 import { fetchCommand } from "./commands/fetch.js";
 import { siteCommand } from "./commands/site.js";
 import { historyCommand } from "./commands/history.js";
+import { statusCommand } from "./commands/daemon.js";
 import { setJqExpression } from "./client.js";
 
-const VERSION = "0.8.2";
+declare const __BB_BROWSER_VERSION__: string;
+
+const VERSION = __BB_BROWSER_VERSION__;
 
 const HELP_TEXT = `
 bb-browser - AI Agent 浏览器自动化工具
@@ -476,6 +479,11 @@ async function main(): Promise<void> {
 
       case "tab": {
         await tabCommand(parsed.args, { json: parsed.flags.json });
+        break;
+      }
+
+      case "status": {
+        await statusCommand({ json: parsed.flags.json });
         break;
       }
 

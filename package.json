@@ -1,6 +1,6 @@
 {
-  "name": "bb-browser",
-  "version": "0.8.3",
+  "name": "@pinix/browser",
+  "version": "0.10.1",
   "description": "Your browser is the API. CLI + MCP server for AI agents to control Chrome with your login state.",
   "type": "module",
   "bin": {
@@ -17,7 +17,7 @@
   "scripts": {
     "build": "turbo run build && pnpm build:release",
     "build:release": "tsup && pnpm build:extension",
-    "build:extension": "cp -r packages/extension/dist extension",
+    "build:extension": "rm -rf extension && cp -r packages/extension/dist extension",
     "dev": "turbo run dev",
     "test": "turbo run test",
     "lint": "turbo run lint",
@@ -52,14 +52,21 @@
   },
   "packageManager": "pnpm@9.15.0",
   "dependencies": {
-    "ws": "^8.18.0",
+    "@bufbuild/protobuf": "^2.11.0",
+    "@connectrpc/connect": "^2.1.1",
+    "@connectrpc/connect-node": "^2.1.1",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "ajv": "^8.17.1",
-    "ajv-formats": "^3.0.1"
+    "ajv-formats": "^3.0.1",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.23.0",
+    "eslint": "^9.23.0",
+    "globals": "^16.0.0",
     "tsup": "^8.0.0",
     "turbo": "^2.3.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.29.0"
   }
 }

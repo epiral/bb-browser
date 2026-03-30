@@ -83,7 +83,7 @@ export class RequestManager {
    * 清理所有 pending 请求
    */
   clear(): void {
-    for (const [id, request] of this.pending) {
+    for (const request of this.pending.values()) {
       clearTimeout(request.timeout);
       request.reject(new Error("Daemon shutting down"));
     }

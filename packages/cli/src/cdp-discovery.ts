@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { parseOpenClawJson } from "./openclaw-json.js";
 
 const DEFAULT_CDP_PORT = 19825;
 const MANAGED_BROWSER_DIR = path.join(os.homedir(), ".bb-browser", "browser");
@@ -30,7 +31,7 @@ function getArgValue(flag: string): string | undefined {
 async function tryOpenClaw(): Promise<{ host: string; port: number } | null> {
   try {
     const raw = await execFileAsync("npx", ["openclaw", "browser", "status", "--json"], 5000);
-    const parsed = JSON.parse(raw);
+    const parsed = parseOpenClawJson<{ cdpPort?: number | string }>(raw);
     const port = Number(parsed?.cdpPort);
     if (Number.isInteger(port) && port > 0) {
       return { host: "127.0.0.1", port };
@@ -81,10 +82,18 @@ export function findBrowserExecutable(): string | null {
   }
 
   if (process.platform === "win32") {
+    const localAppData = process.env.LOCALAPPDATA ?? "";
     const candidates = [
       "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
       "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+      ...(localAppData ? [
+        `${localAppData}\\Google\\Chrome Dev\\Application\\chrome.exe`,
+        `${localAppData}\\Google\\Chrome SxS\\Application\\chrome.exe`,
+        `${localAppData}\\Google\\Chrome Beta\\Application\\chrome.exe`,
+      ] : []),
       "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+      "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+      "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
     ];
     return candidates.find((candidate) => existsSync(candidate)) ?? null;
   }
