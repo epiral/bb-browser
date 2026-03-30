@@ -1,15 +1,10 @@
 name: Publish
 
 on:
-  workflow_call:
-    inputs:
-      tag_name:
-        required: true
-        type: string
   workflow_dispatch:
     inputs:
-      tag_name:
-        description: "Release tag (e.g. bb-browser-v0.10.0)"
+      version:
+        description: "Release version (e.g. 0.10.2)"
         required: true
         type: string
 
@@ -19,9 +14,45 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      RELEASE_TAG: v${{ inputs.version }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate version
+        run: |
+          if ! echo "$RELEASE_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Version must look like 0.10.2"
+            exit 1
+          fi
+
+      - name: Sync release version files
+        run: node scripts/sync-release-version.mjs "$RELEASE_VERSION"
+
+      - name: Commit release version
+        run: |
+          if git diff --quiet; then
+            echo "Version files already set to $RELEASE_VERSION"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add package.json packages/extension/manifest.json
+            git commit -m "chore: release v$RELEASE_VERSION"
+            git push
+          fi
+
+      - name: Create release tag
+        run: |
+          if git rev-parse "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Tag $RELEASE_TAG already exists"
+          else
+            git tag "$RELEASE_TAG"
+            git push origin "$RELEASE_TAG"
+          fi
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -44,10 +75,22 @@ jobs:
       - name: Package extension
         run: |
           cd extension
-          zip -r "../bb-browser-extension-${{ inputs.tag_name }}.zip" .
+          zip -r "../bb-browser-extension-${RELEASE_TAG}.zip" .
+
+      - name: Create GitHub release
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists"
+          else
+            gh release create "$RELEASE_TAG" \
+              --title "$RELEASE_TAG" \
+              --generate-notes
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload extension asset
-        run: gh release upload "${{ inputs.tag_name }}" "bb-browser-extension-${{ inputs.tag_name }}.zip" --clobber
+        run: gh release upload "$RELEASE_TAG" "bb-browser-extension-${RELEASE_TAG}.zip" --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
