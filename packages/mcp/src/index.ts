@@ -3,9 +3,10 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { DAEMON_BASE_URL, COMMAND_TIMEOUT, generateId } from "@bb-browser/shared";
 import type { Request, Response } from "@bb-browser/shared";
 import { execFile, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { dirname, resolve, join, relative } from "node:path";
+import { homedir } from "node:os";
 import { z } from "zod";
 
 declare const __BB_BROWSER_VERSION__: string;
@@ -213,6 +214,149 @@ async function runSiteCli(args: string[]): Promise<unknown> {
   }
 
   return parsed ?? result.stdout.trim();
+}
+
+// ── Site adapter helpers (daemon path) ──────────────────────────
+
+const BB_DIR = join(homedir(), ".bb-browser");
+const LOCAL_SITES_DIR = join(BB_DIR, "sites");
+const COMMUNITY_SITES_DIR = join(BB_DIR, "bb-sites");
+
+interface SiteArgDef {
+  required?: boolean;
+  description?: string;
+}
+
+interface SiteMeta {
+  name: string;
+  description: string;
+  domain: string;
+  args: Record<string, SiteArgDef>;
+  filePath: string;
+  source: "local" | "community";
+}
+
+function parseSiteMeta(filePath: string, sitesDir: string, source: "local" | "community"): SiteMeta | null {
+  let content: string;
+  try { content = readFileSync(filePath, "utf-8"); } catch { return null; }
+  const defaultName = relative(sitesDir, filePath).replace(/\.js$/, "").replace(/\\/g, "/");
+  const metaMatch = content.match(/\/\*\s*@meta\s*\n([\s\S]*?)\*\//);
+  if (!metaMatch) return null;
+  try {
+    const m = JSON.parse(metaMatch[1]);
+    return { name: m.name || defaultName, description: m.description || "", domain: m.domain || "", args: m.args || {}, filePath, source };
+  } catch { return null; }
+}
+
+function scanSitesDir(dir: string, source: "local" | "community"): SiteMeta[] {
+  if (!existsSync(dir)) return [];
+  const sites: SiteMeta[] = [];
+  function walk(d: string): void {
+    let entries;
+    try { entries = readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const p = join(d, e.name);
+      if (e.isDirectory() && !e.name.startsWith(".")) walk(p);
+      else if (e.isFile() && e.name.endsWith(".js")) {
+        const meta = parseSiteMeta(p, dir, source);
+        if (meta) sites.push(meta);
+      }
+    }
+  }
+  walk(dir);
+  return sites;
+}
+
+function getAllSites(): SiteMeta[] {
+  const byName = new Map<string, SiteMeta>();
+  for (const s of scanSitesDir(COMMUNITY_SITES_DIR, "community")) byName.set(s.name, s);
+  for (const s of scanSitesDir(LOCAL_SITES_DIR, "local")) byName.set(s.name, s);
+  return Array.from(byName.values());
+}
+
+function matchTabOrigin(tabUrl: string, domain: string): boolean {
+  try {
+    const h = new URL(tabUrl).hostname;
+    return h === domain || h.endsWith("." + domain);
+  } catch { return false; }
+}
+
+interface TabInfo { tabId: number; url: string; }
+
+async function runSiteViaDaemon(
+  siteName: string,
+  positionalArgs: string[] | undefined,
+  named: Record<string, string> | undefined,
+  targetTab: number | undefined,
+): Promise<unknown> {
+  const site = getAllSites().find(s => s.name === siteName);
+  if (!site) {
+    const fuzzy = getAllSites().filter(s => s.name.includes(siteName)).slice(0, 5).map(s => s.name);
+    throw new Error(`Adapter "${siteName}" not found.${fuzzy.length ? " Did you mean: " + fuzzy.join(", ") : " Run site_update first."}`);
+  }
+
+  // Build argMap
+  const argNames = Object.keys(site.args);
+  const argMap: Record<string, string> = {};
+  if (named) Object.assign(argMap, named);
+  let posIdx = 0;
+  for (const argName of argNames) {
+    if (!argMap[argName] && positionalArgs && posIdx < positionalArgs.length) {
+      argMap[argName] = positionalArgs[posIdx++];
+    }
+  }
+  for (const [argName, argDef] of Object.entries(site.args)) {
+    if (argDef.required && !argMap[argName]) {
+      throw new Error(`Missing required argument "${argName}" for ${siteName}`);
+    }
+  }
+
+  // Read and prepare script — use top-level await to ensure async results are resolved
+  const jsContent = readFileSync(site.filePath, "utf-8");
+  const jsBody = jsContent.replace(/\/\*\s*@meta[\s\S]*?\*\//, "").trim();
+  const argsJson = JSON.stringify(argMap);
+  const script = `const __bb_fn = ${jsBody};\nconst __bb_r = await __bb_fn(${argsJson});\nJSON.stringify(__bb_r);`;
+
+  // Find or open target tab via daemon
+  let tabId = targetTab;
+  if (tabId === undefined && site.domain) {
+    const listResp = await runCommand({ action: "tab_list" });
+    if (listResp.success && listResp.data?.tabs) {
+      const match = (listResp.data.tabs as TabInfo[]).find(t => matchTabOrigin(t.url, site.domain));
+      if (match) tabId = match.tabId;
+    }
+    if (tabId === undefined) {
+      const newResp = await runCommand({ action: "tab_new", url: `https://${site.domain}` });
+      if (!newResp.success) throw new Error(newResp.error || "Failed to open tab");
+      tabId = (newResp.data as { tabId?: number })?.tabId;
+      rememberSessionTab(tabId);
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+
+  // Execute via daemon eval
+  const evalResp = await runCommand({ action: "eval", script, tabId });
+  if (!evalResp.success) {
+    const hint = site.domain ? `Open https://${site.domain} and log in, then retry.` : undefined;
+    throw new Error((evalResp.error || "eval failed") + (hint ? `\nHint: ${hint}` : ""));
+  }
+
+  const result = evalResp.data?.result;
+  if (result === undefined || result === null) return null;
+
+  let parsed: unknown;
+  try { parsed = typeof result === "string" ? JSON.parse(result) : result; } catch { parsed = result; }
+
+  // Check adapter-level error
+  if (typeof parsed === "object" && parsed !== null && "error" in parsed) {
+    const errObj = parsed as { error: string; hint?: string };
+    const checkText = `${errObj.error} ${errObj.hint || ""}`;
+    const isAuth = /401|403|unauthorized|forbidden|not.?logged|login.?required|sign.?in|auth/i.test(checkText);
+    const loginHint = isAuth && site.domain ? `Please log in to https://${site.domain} first.` : undefined;
+    throw new Error(errObj.error + (loginHint ? `\nHint: ${loginHint}` : errObj.hint ? `\nHint: ${errObj.hint}` : ""));
+  }
+
+  return parsed;
 }
 
 const server = new McpServer(
@@ -602,28 +746,26 @@ server.tool(
     openclaw: z.boolean().optional().describe("Prefer the OpenClaw browser instead of the extension flow"),
   },
   async ({ name, args, namedArgs, tab, openclaw }) => {
+    if (openclaw) {
+      // OpenClaw mode still uses CLI subprocess
+      try {
+        const cliArgs = ["run", name];
+        for (const arg of args || []) cliArgs.push(arg);
+        for (const [key, value] of Object.entries(namedArgs || {})) cliArgs.push(`--${key}`, value);
+        if (tab !== undefined) cliArgs.push("--tab", String(tab));
+        cliArgs.push("--openclaw", "--json");
+        const result = await runSiteCli(cliArgs);
+        const unwrapped = result && typeof result === "object" && "data" in result ? result.data : result;
+        return textResult(unwrapped);
+      } catch (error) {
+        return errorResult(error instanceof Error ? error.message : String(error));
+      }
+    }
+
+    // Default: execute via daemon + extension path
     try {
-      const cliArgs = ["run", name];
-
-      for (const arg of args || []) {
-        cliArgs.push(arg);
-      }
-
-      for (const [key, value] of Object.entries(namedArgs || {})) {
-        cliArgs.push(`--${key}`, value);
-      }
-
-      if (tab !== undefined) {
-        cliArgs.push("--tab", String(tab));
-      }
-      if (openclaw) {
-        cliArgs.push("--openclaw");
-      }
-      cliArgs.push("--json");
-
-      const result = await runSiteCli(cliArgs);
-      const unwrapped = result && typeof result === "object" && "data" in result ? result.data : result;
-      return textResult(unwrapped);
+      const result = await runSiteViaDaemon(name, args, namedArgs, tab);
+      return textResult(result);
     } catch (error) {
       return errorResult(error instanceof Error ? error.message : String(error));
     }
