@@ -119,6 +119,30 @@ function buildRequestError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
+function isCreateTargetUnsupported(error: unknown): boolean {
+  const message = buildRequestError(error).message;
+  return message.includes("Target.createTarget: Not supported")
+    || message.includes("'Target.createTarget' wasn't found")
+    || message.includes("Method not found");
+}
+
+async function createTargetWithFallback(url: string): Promise<string | null> {
+  try {
+    const created = await browserCommand<{ targetId: string }>("Target.createTarget", { url, background: true });
+    return created.targetId;
+  } catch (firstError) {
+    try {
+      const created = await browserCommand<{ targetId: string }>("Target.createTarget", { url });
+      return created.targetId;
+    } catch (secondError) {
+      if (isCreateTargetUnsupported(firstError) || isCreateTargetUnsupported(secondError)) {
+        return null;
+      }
+      throw secondError;
+    }
+  }
+}
+
 function fetchJson(url: string): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const requester = url.startsWith("https:") ? httpsRequest : httpRequest;
@@ -972,9 +996,15 @@ async function dispatchRequest(request: Request): Promise<Response> {
     case "open": {
       if (!request.url) return fail(request.id, "Missing url parameter");
       if (request.tabId === undefined) {
-        const created = await browserCommand<{ targetId: string }>("Target.createTarget", { url: request.url, background: true });
-        const newTarget = await ensurePageTarget(created.targetId);
-        return ok(request.id, { url: request.url, tabId: newTarget.id });
+        const createdTargetId = await createTargetWithFallback(request.url);
+        if (createdTargetId) {
+          const newTarget = await ensurePageTarget(createdTargetId);
+          return ok(request.id, { url: request.url, tabId: newTarget.id });
+        }
+        await pageCommand(target.id, "Page.navigate", { url: request.url });
+        connectionState?.refsByTarget.delete(target.id);
+        clearPersistedRefs(target.id);
+        return ok(request.id, { url: request.url, title: target.title, tabId: target.id });
       }
       await pageCommand(target.id, "Page.navigate", { url: request.url });
       connectionState?.refsByTarget.delete(target.id);
@@ -1086,8 +1116,10 @@ async function dispatchRequest(request: Request): Promise<Response> {
       return ok(request.id, { tabs, activeIndex: tabs.findIndex((tab) => tab.active) });
     }
     case "tab_new": {
-      const created = await browserCommand<{ targetId: string }>("Target.createTarget", { url: request.url ?? "about:blank", background: true });
-      return ok(request.id, { tabId: created.targetId, url: request.url ?? "about:blank" });
+      const targetUrl = request.url ?? "about:blank";
+      const createdTargetId = await createTargetWithFallback(targetUrl);
+      if (!createdTargetId) return fail(request.id, "Target.createTarget is not supported by current CDP runtime");
+      return ok(request.id, { tabId: createdTargetId, url: targetUrl });
     }
     case "tab_select": {
       const tabs = (await getTargets()).filter((item) => item.type === "page");
