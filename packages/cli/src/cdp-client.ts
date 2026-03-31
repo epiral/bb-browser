@@ -967,15 +967,16 @@ export async function sendCommand(request: Request): Promise<Response> {
 }
 
 async function dispatchRequest(request: Request): Promise<Response> {
+  if (request.action === "open" && !request.tabId) {
+    if (!request.url) return fail(request.id, "Missing url parameter");
+    const created = await browserCommand<{ targetId: string }>("Target.createTarget", { url: request.url, background: true });
+    const newTarget = await ensurePageTarget(created.targetId);
+    return ok(request.id, { url: request.url, tabId: newTarget.id });
+  }
   const target = await ensurePageTarget(request.tabId);
   switch (request.action) {
     case "open": {
       if (!request.url) return fail(request.id, "Missing url parameter");
-      if (request.tabId === undefined) {
-        const created = await browserCommand<{ targetId: string }>("Target.createTarget", { url: request.url, background: true });
-        const newTarget = await ensurePageTarget(created.targetId);
-        return ok(request.id, { url: request.url, tabId: newTarget.id });
-      }
       await pageCommand(target.id, "Page.navigate", { url: request.url });
       connectionState?.refsByTarget.delete(target.id);
       clearPersistedRefs(target.id);

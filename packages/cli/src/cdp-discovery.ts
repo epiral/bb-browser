@@ -1,6 +1,7 @@
 import { execFile, execSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { parseOpenClawJson } from "./openclaw-json.js";
@@ -42,15 +43,16 @@ async function tryOpenClaw(): Promise<{ host: string; port: number } | null> {
 }
 
 async function canConnect(host: string, port: number): Promise<boolean> {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 1200);
-    const response = await fetch(`http://${host}:${port}/json/version`, { signal: controller.signal });
-    clearTimeout(timeout);
-    return response.ok;
-  } catch {
-    return false;
-  }
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => { req.destroy(); resolve(false); }, 1200);
+    const req = httpRequest(`http://${host}:${port}/json/version`, { method: "GET" }, (res) => {
+      clearTimeout(timeout);
+      res.resume();
+      resolve((res.statusCode ?? 500) < 400);
+    });
+    req.on("error", () => { clearTimeout(timeout); resolve(false); });
+    req.end();
+  });
 }
 
 export function findBrowserExecutable(): string | null {
