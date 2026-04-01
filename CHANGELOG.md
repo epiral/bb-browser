@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.11.0](https://github.com/epiral/bb-browser/compare/bb-browser-v0.10.0...bb-browser-v0.11.0) (2026-04-01)
+
+
+### Features
+
+* add pinix.json (Edge Clip manifest) ([54e02b0](https://github.com/epiral/bb-browser/commit/54e02b02652b68fd77d7635c60a9ab5230077692))
+* auto-launch Chrome in bb-browserd + clip.json ([#123](https://github.com/epiral/bb-browser/issues/123)) ([1fe733b](https://github.com/epiral/bb-browser/commit/1fe733b4168dcc9f7a629b9b6a8e05a30cd5411a))
+* **cli:** support cdpUrl and cdpHost from OpenClaw ([#70](https://github.com/epiral/bb-browser/issues/70)) ([2086436](https://github.com/epiral/bb-browser/commit/208643638e9b26f80ec591884aca1483c1d3f08e))
+* **mcp:** add session tab cleanup tool ([#91](https://github.com/epiral/bb-browser/issues/91)) ([cfa1b0f](https://github.com/epiral/bb-browser/commit/cfa1b0fd8bdf5e02cc12e7954e800b821c6e98db))
+
+
+### Bug Fixes
+
+* add Chrome Dev/Beta/Canary and Brave to Windows browser candidates ([b9ee3aa](https://github.com/epiral/bb-browser/commit/b9ee3aaca2c3884038005e0d259bfa4c500de912))
+* auto-reconnect after Hub restart ([#111](https://github.com/epiral/bb-browser/issues/111)) ([ef4f684](https://github.com/epiral/bb-browser/commit/ef4f6849e40771b224b8bf67f593aa8c261e8400)), closes [#103](https://github.com/epiral/bb-browser/issues/103)
+* **cli:** pass timeout through to OpenClaw ([#82](https://github.com/epiral/bb-browser/issues/82)) ([7c2ee5e](https://github.com/epiral/bb-browser/commit/7c2ee5e14e0487e8203338d4e1608928b8141a59))
+* **cli:** place openclaw browser flags before subcommand ([#102](https://github.com/epiral/bb-browser/issues/102)) ([1b3a394](https://github.com/epiral/bb-browser/commit/1b3a39437f1254e46094adebac1edc44fd367b9f))
+* follow-up fixes for merged PRs [#82](https://github.com/epiral/bb-browser/issues/82), [#91](https://github.com/epiral/bb-browser/issues/91), [#25](https://github.com/epiral/bb-browser/issues/25) ([ee2c404](https://github.com/epiral/bb-browser/commit/ee2c4042455c17b65bedb5b4ac8f8d3785f5f60f))
+* remove replMode from CDP evaluate to fix async/Promise results ([ea6f08c](https://github.com/epiral/bb-browser/commit/ea6f08c007fbe2c6e9460c5f79bb690185b033bf))
+* restore npm package name to bb-browser ([ab43e2b](https://github.com/epiral/bb-browser/commit/ab43e2bfe455a2f04bf26194726f7e1e8eeef098))
+* **shared:** avoid global crypto for request ids ([#89](https://github.com/epiral/bb-browser/issues/89)) ([45c1fbb](https://github.com/epiral/bb-browser/commit/45c1fbb385f21450fcd2c0b9ac1c6c1c6aef60dc))
+* update openclaw-bridge tests for new flag ordering ([#102](https://github.com/epiral/bb-browser/issues/102)) ([cbdd26c](https://github.com/epiral/bb-browser/commit/cbdd26c2c8159acf48580d4af8ef069d2e646e4f))
+
 ## [0.10.0](https://github.com/epiral/bb-browser/compare/bb-browser-v0.9.0...bb-browser-v0.10.0) (2026-03-22)
 
 
