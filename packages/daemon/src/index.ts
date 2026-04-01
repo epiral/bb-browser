@@ -152,13 +152,16 @@ async function discoverCdpPort(host: string, port: number): Promise<{ host: stri
   // Try connecting to the specified port first
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2000);
-    const response = await fetch(`http://${host}:${port}/json/version`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (response.ok) {
-      return { host, port };
+    const timer = setTimeout(() => controller.abort(), 2000);
+    try {
+      const response = await fetch(`http://${host}:${port}/json/version`, {
+        signal: controller.signal,
+      });
+      if (response.ok) {
+        return { host, port };
+      }
+    } finally {
+      clearTimeout(timer);
     }
   } catch {}
 
@@ -170,13 +173,16 @@ async function discoverCdpPort(host: string, port: number): Promise<{ host: stri
     if (Number.isInteger(managedPort) && managedPort > 0) {
       try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 2000);
-        const response = await fetch(`http://127.0.0.1:${managedPort}/json/version`, {
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        if (response.ok) {
-          return { host: "127.0.0.1", port: managedPort };
+        const timer = setTimeout(() => controller.abort(), 2000);
+        try {
+          const response = await fetch(`http://127.0.0.1:${managedPort}/json/version`, {
+            signal: controller.signal,
+          });
+          if (response.ok) {
+            return { host: "127.0.0.1", port: managedPort };
+          }
+        } finally {
+          clearTimeout(timer);
         }
       } catch {}
     }
@@ -210,8 +216,11 @@ async function main(): Promise<void> {
 
   const cdp = new CdpConnection(cdpEndpoint.host, cdpEndpoint.port, tabManager);
 
-  // Graceful shutdown handler
+  // Graceful shutdown handler (guarded against double-call)
+  let shuttingDown = false;
   const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     console.error("[Daemon] Shutting down...");
     cdp.disconnect();
     await httpServer.stop();
