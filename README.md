@@ -165,7 +165,7 @@ bb-browser site info xueqiu/stock   # view adapter args, example, domain
 
 ## Daemon configuration
 
-The daemon binds to `localhost:19824` by default. You can customize the host with `--host`:
+The daemon binds to `127.0.0.1:19824` by default. You can customize the host with `--host`:
 
 ```bash
 bb-browser daemon --host 127.0.0.1    # IPv4 only (fix macOS IPv6 issues)

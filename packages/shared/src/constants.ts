@@ -6,7 +6,7 @@
 export const DAEMON_PORT = 19824;
 
 /** Daemon 主机地址 */
-export const DAEMON_HOST = "localhost";
+export const DAEMON_HOST = "127.0.0.1";
 
 /** Daemon 基础 URL */
 export const DAEMON_BASE_URL = `http://${DAEMON_HOST}:${DAEMON_PORT}`;

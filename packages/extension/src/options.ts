@@ -1,5 +1,5 @@
 const STORAGE_KEY = 'upstreamUrl';
-const DEFAULT_URL = 'http://localhost:19824';
+const DEFAULT_URL = 'http://127.0.0.1:19824';
 
 const urlInput = document.getElementById('url') as HTMLInputElement;
 const saveBtn = document.getElementById('save') as HTMLButtonElement;
