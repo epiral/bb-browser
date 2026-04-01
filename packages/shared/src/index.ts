@@ -14,8 +14,6 @@ export {
   type Response,
   type ResponseData,
   type SnapshotData,
-  type SSEEvent,
-  type SSEEventType,
   type TabInfo,
   type TraceEvent,
   type TraceStatus,

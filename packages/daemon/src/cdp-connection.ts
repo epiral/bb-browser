@@ -9,7 +9,7 @@
 
 import { request as httpRequest } from "node:http";
 import WebSocket from "ws";
-import { TabStateManager, type TabState } from "./tab-state.js";
+import { TabStateManager } from "./tab-state.js";
 
 // ---------------------------------------------------------------------------
 // Types

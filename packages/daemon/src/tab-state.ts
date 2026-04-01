@@ -173,7 +173,10 @@ export class TabState {
       items = items.slice(-options.limit);
     }
 
-    const cursor = items.length > 0 ? Math.max(...items.map((i) => i.seq)) : 0;
+    const sinceThreshold = options?.since !== undefined
+      ? (options.since === "last_action" ? this.lastActionSeq : options.since)
+      : 0;
+    const cursor = items.length > 0 ? Math.max(...items.map((i) => i.seq)) : sinceThreshold;
     return { items, cursor };
   }
 
@@ -199,7 +202,10 @@ export class TabState {
       items = items.slice(-options.limit);
     }
 
-    const cursor = items.length > 0 ? Math.max(...items.map((i) => i.seq)) : 0;
+    const sinceThreshold = options?.since !== undefined
+      ? (options.since === "last_action" ? this.lastActionSeq : options.since)
+      : 0;
+    const cursor = items.length > 0 ? Math.max(...items.map((i) => i.seq)) : sinceThreshold;
     return { items, cursor };
   }
 
@@ -227,7 +233,10 @@ export class TabState {
       items = items.slice(-options.limit);
     }
 
-    const cursor = items.length > 0 ? Math.max(...items.map((i) => i.seq)) : 0;
+    const sinceThreshold = options?.since !== undefined
+      ? (options.since === "last_action" ? this.lastActionSeq : options.since)
+      : 0;
+    const cursor = items.length > 0 ? Math.max(...items.map((i) => i.seq)) : sinceThreshold;
     return { items, cursor };
   }
 

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 /**
- * CLI 与 Chrome Extension 之间的通信协议类型定义
+ * bb-browser 通信协议 — CLI/MCP ↔ Daemon ↔ Chrome CDP
  */
 
 /** 支持的操作类型 */
@@ -107,6 +107,14 @@ export interface Request {
   waitType?: string;
   /** 等待毫秒数（wait 命令使用） */
   ms?: number;
+  /** 增量查询起点（observation 命令使用，支持 seq 数值或 "last_action"） */
+  since?: number | "last_action";
+  /** HTTP 方法过滤（network requests 使用） */
+  method?: string;
+  /** HTTP 状态码过滤（network requests 使用，支持 "4xx"/"5xx" 或具体数字） */
+  status?: string;
+  /** 返回条数限制（observation 命令使用） */
+  limit?: number;
 }
 
 /** 元素引用信息 */
@@ -133,8 +141,10 @@ export interface TabInfo {
   title: string;
   /** 是否是当前活动标签页 */
   active: boolean;
-  /** 标签页 ID */
-  tabId: number;
+  /** 标签页 ID（CDP targetId 或 extension tabId） */
+  tabId: number | string;
+  /** 短标签页 ID（daemon 模式） */
+  tab?: string;
 }
 
 /** Snapshot 命令返回的数据 */
@@ -238,7 +248,13 @@ export interface ResponseData {
   /** 当前 URL */
   url?: string;
   /** Tab ID */
-  tabId?: number;
+  tabId?: number | string;
+  /** 短标签页 ID（daemon 模式） */
+  tab?: string;
+  /** 全局操作序号 */
+  seq?: number;
+  /** 观测查询游标（用于 since 增量查询） */
+  cursor?: number;
   /** Snapshot 数据（snapshot 操作返回） */
   snapshotData?: SnapshotData;
   /** 获取的文本或属性值（get 操作返回） */
@@ -312,21 +328,20 @@ export interface Response {
   error?: string;
 }
 
-/** SSE 事件类型 */
-export type SSEEventType = "connected" | "heartbeat" | "command";
-
-/** SSE 事件数据 */
-export interface SSEEvent {
-  type: SSEEventType;
-  data: unknown;
-}
-
 /** Daemon 状态 */
 export interface DaemonStatus {
   running: boolean;
-  extensionConnected: boolean;
-  pendingRequests: number;
+  cdpConnected: boolean;
   uptime: number;
+  currentSeq?: number;
+  tabs?: Array<{
+    shortId: string;
+    targetId: string;
+    networkRequests: number;
+    consoleMessages: number;
+    jsErrors: number;
+    lastActionSeq: number;
+  }>;
 }
 
 /**

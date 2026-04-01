@@ -71,13 +71,6 @@ bb-browser site xueqiu/hot-stock 5 --openclaw --jq '.items[] | {name, changePerc
 
 Skill on ClawHub: [bb-browser-openclaw](https://clawhub.ai/yan5xu/bb-browser)
 
-### Chrome Extension (standalone mode)
-
-For use without OpenClaw (Claude Code MCP, standalone CLI):
-
-1. Download from [Releases](https://github.com/epiral/bb-browser/releases/latest)
-2. Unzip → `chrome://extensions/` → Developer Mode → Load unpacked
-
 ### MCP (Claude Code / Cursor)
 
 ```json
@@ -185,10 +178,15 @@ bb-browser daemon --host 0.0.0.0      # listen on all interfaces (for Tailscale 
 AI Agent (Claude Code, Codex, Cursor, etc.)
        │ CLI or MCP (stdio)
        ▼
-bb-browser CLI ──HTTP──▶ Daemon ──SSE──▶ Chrome Extension
-                                              │
-                                              ▼ chrome.debugger (CDP)
-                                         Your Real Browser
+bb-browser CLI ──HTTP──▶ Daemon ──CDP WebSocket──▶ Your Real Browser
+                           │
+                    ┌──────┴──────┐
+                    │ Per-tab     │
+                    │ event cache │
+                    │ (network,   │
+                    │  console,   │
+                    │  errors)    │
+                    └─────────────┘
 ```
 
 ## License
