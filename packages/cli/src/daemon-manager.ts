@@ -33,6 +33,18 @@ interface DaemonInfo {
 
 let cachedInfo: DaemonInfo | null = null;
 let daemonReady = false;
+let _spawnCdpPort: number | undefined;
+let _spawnHost: string | undefined;
+
+/**
+ * Configure CDP port and host for daemon auto-spawn.
+ * When ensureDaemon() needs to start a new daemon process,
+ * these values are forwarded as --cdp-port and --host arguments.
+ */
+export function setDaemonSpawnOptions(options: { cdpPort?: number; host?: string }): void {
+  _spawnCdpPort = options.cdpPort;
+  _spawnHost = options.host;
+}
 
 // ---------------------------------------------------------------------------
 // PID liveness check
@@ -193,7 +205,10 @@ export async function ensureDaemon(): Promise<void> {
 
   // Spawn daemon process
   const daemonPath = getDaemonPath();
-  const child = spawn(process.execPath, [daemonPath], {
+  const daemonArgs = [daemonPath];
+  if (_spawnCdpPort) daemonArgs.push("--cdp-port", String(_spawnCdpPort));
+  if (_spawnHost) daemonArgs.push("--host", String(_spawnHost));
+  const child = spawn(process.execPath, daemonArgs, {
     detached: true,
     stdio: "ignore",
   });
