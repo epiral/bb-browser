@@ -108,20 +108,6 @@ function normalizeTabId(tabId: string | number | undefined): string | undefined 
   return undefined;
 }
 
-function buildTabSelector(tabId: string | number | undefined): Pick<Request, "tabId" | "targetId"> {
-  if (typeof tabId === "number" && Number.isFinite(tabId)) {
-    return { tabId };
-  }
-  if (typeof tabId === "string" && tabId) {
-    const numericTabId = Number(tabId);
-    if (Number.isFinite(numericTabId) && String(numericTabId) === tabId) {
-      return { tabId: numericTabId };
-    }
-    return { targetId: tabId };
-  }
-  return {};
-}
-
 function rememberSessionTab(tabId: string | number | undefined): void {
   const normalizedTabId = normalizeTabId(tabId);
   if (normalizedTabId) {
@@ -138,7 +124,7 @@ function forgetSessionTab(tabId: string | number | undefined): void {
 
 function rememberSessionTabFromResponse(data: Response["data"]): void {
   if (!data) return;
-  rememberSessionTab(data.targetId ?? data.tabId);
+  rememberSessionTab((data as Response["data"] & { tabId?: string | number }).tabId);
 }
 
 function tryParseJson<T>(raw: string): T | null {
@@ -567,7 +553,7 @@ server.tool(
     const failedTabs: Array<{ tabId: string; error: string }> = [];
 
     for (const tabId of Array.from(sessionOpenedTabs)) {
-      const resp = await runCommand({ action: "tab_close", ...buildTabSelector(tabId) });
+      const resp = await runCommand({ action: "tab_close", tabId });
       if (resp.success) {
         sessionOpenedTabs.delete(tabId);
         closedTabs.push(tabId);

@@ -647,7 +647,6 @@ async function siteRun(
 
   // 确定目标 tab
   let targetTabId: number | undefined = options.tabId;
-  let targetId: string | undefined;
 
   // 如果用户没指定 --tab，自动查找匹配域名的 tab
   if (!targetTabId && site.domain) {
@@ -660,30 +659,22 @@ async function siteRun(
       );
       if (matchingTab) {
         targetTabId = matchingTab.tabId;
-        targetId = matchingTab.targetId;
       }
     }
 
-    if (!targetTabId && !targetId) {
+    if (!targetTabId) {
       const newResp = await sendCommand({
         id: generateId(),
         action: "tab_new",
         url: `https://${site.domain}`,
       });
       targetTabId = newResp.data?.tabId;
-      targetId = newResp.data?.targetId;
       await new Promise((resolve) => setTimeout(resolve, 3000));
     }
   }
 
   // 执行
-  const evalReq: Request = {
-    id: generateId(),
-    action: "eval",
-    script,
-    tabId: targetTabId,
-    targetId,
-  };
+  const evalReq: Request = { id: generateId(), action: "eval", script, tabId: targetTabId };
   const evalResp: Response = await sendCommand(evalReq);
 
   if (!evalResp.success) {
