@@ -7,8 +7,10 @@
  * cli/cdp-monitor.ts (persistent connection + event listening).
  */
 
+import { readFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import WebSocket from "ws";
+import { getDevToolsActivePortPath } from "@bb-browser/shared";
 import { TabStateManager } from "./tab-state.js";
 
 // ---------------------------------------------------------------------------
@@ -59,10 +61,33 @@ function fetchJson(url: string): Promise<unknown> {
 
 function connectWebSocket(url: string): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
+    // Pass empty headers to prevent ws from sending an Origin header.
+    // Chrome 146+ rejects CDP WebSocket connections with a non-empty Origin (403).
+    const ws = new WebSocket(url, { headers: {} });
     ws.once("open", () => resolve(ws));
     ws.once("error", reject);
   });
+}
+
+/**
+ * Read Chrome's DevToolsActivePort file to discover the CDP WebSocket URL.
+ * Chrome writes this file to its user-data-dir on startup; it contains the
+ * debug port on the first line and the browser WebSocket path on the second.
+ */
+function readDevToolsActivePort(): string | undefined {
+  const portFile = getDevToolsActivePortPath();
+  try {
+    const lines = readFileSync(portFile, "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (lines.length >= 2) {
+      const port = parseInt(lines[0], 10);
+      if (port > 0) return `ws://127.0.0.1:${port}${lines[1]}`;
+    }
+  } catch {}
+  return undefined;
 }
 
 function normalizeHeaders(headers: unknown): Record<string, string> | undefined {
@@ -130,12 +155,31 @@ export class CdpConnection {
   }
 
   private async doConnect(): Promise<void> {
-    const versionData = (await fetchJson(
-      `http://${this.host}:${this.port}/json/version`,
-    )) as JsonObject;
-    const wsUrl = versionData.webSocketDebuggerUrl;
+    let wsUrl: string | undefined;
+
+    // Primary: discover via /json/version HTTP endpoint
+    try {
+      const versionData = (await fetchJson(
+        `http://${this.host}:${this.port}/json/version`,
+      )) as JsonObject;
+      if (typeof versionData.webSocketDebuggerUrl === "string") {
+        wsUrl = versionData.webSocketDebuggerUrl;
+      }
+    } catch {}
+
+    // Fallback: read Chrome's DevToolsActivePort file.
+    // When Chrome is launched with --remote-debugging-port=0 or the /json/version
+    // endpoint is unreachable, Chrome writes the actual port and WebSocket path
+    // to this file.
+    if (!wsUrl) {
+      wsUrl = readDevToolsActivePort();
+    }
+
     if (typeof wsUrl !== "string" || !wsUrl) {
-      throw new Error("CDP endpoint missing webSocketDebuggerUrl");
+      throw new Error(
+        "Cannot discover Chrome CDP endpoint. Ensure Chrome is running with " +
+        "--remote-debugging-port or that /json/version is reachable.",
+      );
     }
 
     const ws = await connectWebSocket(wsUrl);

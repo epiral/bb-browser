@@ -15,7 +15,7 @@ import { mkdirSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
-import { DAEMON_PORT, DAEMON_HOST } from "@bb-browser/shared";
+import { DAEMON_PORT, DAEMON_HOST, getDevToolsActivePortPath } from "@bb-browser/shared";
 import { HttpServer } from "./http-server.js";
 import { CdpConnection } from "./cdp-connection.js";
 import { TabStateManager } from "./tab-state.js";
@@ -174,6 +174,33 @@ async function discoverCdpPort(host: string, port: number): Promise<{ host: stri
           });
           if (response.ok) {
             return { host: "127.0.0.1", port: managedPort };
+          }
+        } finally {
+          clearTimeout(timer);
+        }
+      } catch {}
+    }
+  } catch {}
+
+  // Fallback: read Chrome's DevToolsActivePort file
+  const portFile = getDevToolsActivePortPath();
+  try {
+    const lines = readFileSync(portFile, "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const activePort = parseInt(lines[0], 10);
+    if (activePort > 0) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 2000);
+        try {
+          const response = await fetch(`http://127.0.0.1:${activePort}/json/version`, {
+            signal: controller.signal,
+          });
+          if (response.ok) {
+            return { host: "127.0.0.1", port: activePort };
           }
         } finally {
           clearTimeout(timer);

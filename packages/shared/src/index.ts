@@ -28,4 +28,5 @@ export {
   SSE_HEARTBEAT_INTERVAL,
   SSE_MAX_RECONNECT_ATTEMPTS,
   SSE_RECONNECT_DELAY,
+  getDevToolsActivePortPath,
 } from "./constants.js";

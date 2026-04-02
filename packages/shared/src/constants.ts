@@ -2,6 +2,9 @@
  * bb-browser 共享常量
  */
 
+import os from "node:os";
+import path from "node:path";
+
 /** Daemon HTTP 服务端口 */
 export const DAEMON_PORT = 19824;
 
@@ -10,6 +13,22 @@ export const DAEMON_HOST = "127.0.0.1";
 
 /** Daemon 基础 URL */
 export const DAEMON_BASE_URL = `http://${DAEMON_HOST}:${DAEMON_PORT}`;
+
+/**
+ * Platform-specific path to Chrome's DevToolsActivePort file.
+ * Chrome writes the debugging port and WebSocket path to this file on startup.
+ */
+export function getDevToolsActivePortPath(): string {
+  const h = os.homedir();
+  switch (process.platform) {
+    case "darwin":
+      return path.join(h, "Library/Application Support/Google/Chrome/DevToolsActivePort");
+    case "win32":
+      return path.join(process.env.LOCALAPPDATA || "", "Google/Chrome/User Data/DevToolsActivePort");
+    default:
+      return path.join(h, ".config/google-chrome/DevToolsActivePort");
+  }
+}
 
 /** SSE 心跳间隔（毫秒） - 15秒确保 MV3 Service Worker 不休眠 */
 export const SSE_HEARTBEAT_INTERVAL = 15000; // 15 秒
