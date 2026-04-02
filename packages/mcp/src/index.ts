@@ -10,13 +10,11 @@ import { z } from "zod";
 
 declare const __BB_BROWSER_VERSION__: string;
 
-const EXT_HINT = [
-  "Chrome extension not connected.",
+const CHROME_NOT_CONNECTED_HINT = [
+  "Chrome is not connected to the daemon.",
   "",
-  "1. Download extension: https://github.com/epiral/bb-browser/releases/latest",
-  "2. Unzip the downloaded file",
-  "3. Open chrome://extensions/ → Enable Developer Mode",
-  "4. Click \"Load unpacked\" → select the unzipped folder",
+  "Make sure Chrome is running and the daemon can connect to it via CDP.",
+  "Run: bb-browser daemon --help for details.",
 ].join("\n");
 
 const sessionOpenedTabs = new Set<string>();
@@ -71,7 +69,7 @@ async function sendCommand(request: Request): Promise<Response> {
     });
     clearTimeout(timeoutId);
     if (response.status === 503) {
-      return { id: request.id, success: false, error: EXT_HINT };
+      return { id: request.id, success: false, error: CHROME_NOT_CONNECTED_HINT };
     }
     return (await response.json()) as Response;
   } catch {
@@ -96,8 +94,8 @@ function textResult(value: unknown) {
   return { content: [{ type: "text" as const, text }] };
 }
 
-async function runCommand(request: Omit<Request, "id">) {
-  return sendCommand({ id: generateId(), ...request });
+async function runCommand(request: Omit<Request, "id"> & Record<string, unknown>) {
+  return sendCommand({ id: generateId(), ...request } as Request);
 }
 
 function normalizeTabId(tabId: string | number | undefined): string | undefined {
@@ -231,7 +229,7 @@ async function runSiteCli(args: string[]): Promise<unknown> {
 
 const server = new McpServer(
   { name: "bb-browser", version: __BB_BROWSER_VERSION__ },
-  { instructions: `bb-browser lets you control the user's real Chrome browser — with their login state, cookies, and sessions.
+  { instructions: `bb-browser lets you control the user's real Chrome browser via CDP (Chrome DevTools Protocol).
 
 Your browser is the API. No headless browser, no cookie extraction, no anti-bot bypass.
 
@@ -239,10 +237,17 @@ Key capabilities:
 - browser_snapshot: Read page content via accessibility tree (use ref numbers to interact)
 - browser_click/fill/type: Interact with elements by ref from snapshot
 - browser_eval: Run JavaScript in page context (most powerful — full DOM/fetch access)
-- browser_network: Capture network requests/responses (API reverse engineering)
+- browser_network: Capture network requests/responses (API reverse engineering). Supports incremental queries with since: "last_action"
+- browser_console: Read console messages. Supports since/filter/limit
+- browser_errors: Read JavaScript errors. Supports since/limit
 - browser_screenshot: Visual page capture
-- browser_tab_list/tab_new: Multi-tab support — use tab parameter for concurrent operations
+- browser_tab_list/tab_new: Multi-tab support — use tab parameter (short ID like "c416") for concurrent operations
 - browser_close_all: Close tabs opened by bb-browser during the current MCP session
+
+Tab management:
+- Tab IDs are short hex strings (e.g. "c416") returned by tab_list or open commands
+- Pass tab short ID to any tool to target a specific tab
+- Omit tab to target the active tab
 
 Site adapters (pre-built commands for popular sites):
 - site_list/site_search/site_info: Discover available adapters and their signatures
@@ -258,7 +263,7 @@ server.tool(
   "browser_snapshot",
   "Get accessibility tree snapshot of the current page",
   {
-    tab: z.number().optional().describe("Tab ID to target (omit for active tab)"),
+    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
     interactive: z.boolean().optional().describe("Only show interactive elements"),
   },
   async ({ tab, interactive }) => {
@@ -273,7 +278,7 @@ server.tool(
   "Click an element by ref",
   {
     ref: z.string().describe("Element ref from snapshot"),
-    tab: z.number().optional().describe("Tab ID to target"),
+    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
   },
   async ({ ref, tab }) => {
     const resp = await runCommand({ action: "click", ref, tabId: tab });
@@ -288,7 +293,7 @@ server.tool(
   {
     ref: z.string().describe("Element ref from snapshot"),
     text: z.string().describe("Text to fill"),
-    tab: z.number().optional().describe("Tab ID to target"),
+    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
   },
   async ({ ref, text, tab }) => {
     const resp = await runCommand({ action: "fill", ref, text, tabId: tab });
@@ -303,7 +308,7 @@ server.tool(
   {
     ref: z.string().describe("Element ref from snapshot"),
     text: z.string().describe("Text to type"),
-    tab: z.number().optional().describe("Tab ID to target"),
+    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
   },
   async ({ ref, text, tab }) => {
     const resp = await runCommand({ action: "type", ref, text, tabId: tab });
@@ -317,7 +322,7 @@ server.tool(
   "Navigate to a URL",
   {
     url: z.string().describe("URL to open"),
-    tab: z.number().optional().describe("Tab ID to target"),
+    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
   },
   async ({ url, tab }) => {
     const resp = await runCommand({ action: "open", url, tabId: tab });
@@ -359,7 +364,7 @@ server.tool(
   "Press a keyboard key",
   {
     key: z.string().describe("Key name to press, e.g. Enter or Control+a"),
-    tab: z.number().optional().describe("Tab ID to target"),
+    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
   },
   async ({ key, tab }) => {
     const parts = key.split("+");
@@ -379,7 +384,7 @@ server.tool(
   {
     direction: z.enum(["up", "down", "left", "right"]).describe("Scroll direction"),
     pixels: z.number().optional().default(500).describe("Scroll distance in pixels"),
-    tab: z.number().optional().describe("Tab ID to target"),
+    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
   },
   async ({ direction, pixels, tab }) => {
     const resp = await runCommand({ action: "scroll", direction, pixels, tabId: tab });
@@ -393,7 +398,7 @@ server.tool(
   "Execute JavaScript in page context",
   {
     script: z.string().describe("JavaScript source to execute"),
-    tab: z.number().optional().describe("Tab ID to target"),
+    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
   },
   async ({ script, tab }) => {
     const resp = await runCommand({ action: "eval", script, tabId: tab });
@@ -407,20 +412,98 @@ server.tool(
   "Inspect or clear network activity",
   {
     command: z.enum(["requests", "clear"]).describe("Network command"),
-    filter: z.string().optional().describe("Optional URL substring filter"),
+    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
+    filter: z.string().optional().describe("URL substring filter"),
+    since: z.union([z.literal("last_action"), z.number()]).optional()
+      .describe("Incremental query: 'last_action' for events since last operation, or seq number"),
+    method: z.string().optional().describe("Filter by HTTP method (GET, POST, etc.)"),
+    status: z.string().optional().describe("Filter by status: '4xx', '5xx', or exact code like '200'"),
+    limit: z.number().optional().describe("Max number of results to return"),
     withBody: z.boolean().optional().describe("Include request and response bodies"),
-    tab: z.number().optional().describe("Tab ID to target"),
   },
-  async ({ command, filter, withBody, tab }) => {
+  async ({ command, tab, filter, since, method, status, limit, withBody }) => {
     const resp = await runCommand({
       action: "network",
       networkCommand: command,
       filter,
+      since,
+      method,
+      status,
+      limit,
       withBody,
       tabId: tab,
     });
     if (!resp.success) return responseError(resp);
-    return textResult(command === "requests" ? resp.data?.networkRequests || [] : resp.data || "Cleared");
+    if (command === "requests") {
+      const data = resp.data as Record<string, unknown>;
+      return textResult({
+        requests: data?.networkRequests || data?.requests || [],
+        cursor: data?.cursor,
+      });
+    }
+    return textResult(resp.data || "Cleared");
+  }
+);
+
+server.tool(
+  "browser_console",
+  "Get or clear console messages",
+  {
+    command: z.enum(["get", "clear"]).describe("Console command"),
+    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
+    since: z.union([z.literal("last_action"), z.number()]).optional()
+      .describe("Incremental query: 'last_action' for events since last operation, or seq number"),
+    filter: z.string().optional().describe("Filter console messages by text substring"),
+    limit: z.number().optional().describe("Max number of results to return"),
+  },
+  async ({ command, tab, since, filter, limit }) => {
+    const resp = await runCommand({
+      action: "console",
+      consoleCommand: command,
+      filter,
+      since,
+      limit,
+      tabId: tab,
+    });
+    if (!resp.success) return responseError(resp);
+    if (command === "get") {
+      const data = resp.data as Record<string, unknown>;
+      return textResult({
+        messages: data?.consoleMessages || data?.messages || [],
+        cursor: data?.cursor,
+      });
+    }
+    return textResult(resp.data || "Cleared");
+  }
+);
+
+server.tool(
+  "browser_errors",
+  "Get or clear JavaScript errors",
+  {
+    command: z.enum(["get", "clear"]).describe("Errors command"),
+    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
+    since: z.union([z.literal("last_action"), z.number()]).optional()
+      .describe("Incremental query: 'last_action' for events since last operation, or seq number"),
+    limit: z.number().optional().describe("Max number of results to return"),
+  },
+  async ({ command, tab, since, limit }) => {
+    const resp = await runCommand({
+      action: "errors",
+      errorsCommand: command,
+      since,
+      limit,
+      tabId: tab,
+    });
+    if (!resp.success) return responseError(resp);
+    if (command === "get") {
+      const data = resp.data as Record<string, unknown>;
+      return textResult({
+        errors: data?.jsErrors || data?.errors || [],
+        cursor: data?.cursor,
+      });
+    }
+    return textResult(resp.data || "Cleared");
   }
 );
 
@@ -428,7 +511,7 @@ server.tool(
   "browser_screenshot",
   "Take a screenshot",
   {
-    tab: z.number().optional().describe("Tab ID to target"),
+    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
   },
   async ({ tab }) => {
     const resp = await runCommand({ action: "screenshot", tabId: tab });
@@ -451,7 +534,7 @@ server.tool(
   {
     attribute: z.enum(["text", "url", "title", "value", "html"]).describe("Attribute to retrieve"),
     ref: z.string().optional().describe("Optional element ref"),
-    tab: z.number().optional().describe("Tab ID to target"),
+    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
   },
   async ({ attribute, ref, tab }) => {
     const resp = await runCommand({ action: "get", attribute, ref, tabId: tab });
@@ -464,7 +547,7 @@ server.tool(
   "browser_close",
   "Close the current or specified tab",
   {
-    tab: z.number().optional().describe("Tab ID to close"),
+    tab: z.string().optional().describe("Tab short ID to close"),
   },
   async ({ tab }) => {
     const resp = await runCommand({ action: tab === undefined ? "close" : "tab_close", tabId: tab });
@@ -516,7 +599,7 @@ server.tool(
   "Hover over an element",
   {
     ref: z.string().describe("Element ref from snapshot"),
-    tab: z.number().optional().describe("Tab ID to target"),
+    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
   },
   async ({ ref, tab }) => {
     const resp = await runCommand({ action: "hover", ref, tabId: tab });
@@ -530,7 +613,7 @@ server.tool(
   "Wait for a number of milliseconds",
   {
     time: z.number().describe("Time to wait in milliseconds"),
-    tab: z.number().optional().describe("Tab ID to target"),
+    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
   },
   async ({ time, tab }) => {
     const resp = await runCommand({ action: "wait", waitType: "time", ms: time, tabId: tab });
@@ -612,7 +695,7 @@ server.tool(
     name: z.string().describe("Adapter name, e.g. twitter/search"),
     args: z.array(z.string()).optional().describe("Positional arguments in adapter-defined order"),
     namedArgs: z.record(z.string()).optional().describe("Named adapter arguments passed as --key value"),
-    tab: z.number().optional().describe("Optional tab ID to target"),
+    tab: z.string().optional().describe("Optional tab short ID to target"),
     openclaw: z.boolean().optional().describe("Prefer the OpenClaw browser instead of the extension flow"),
   },
   async ({ name, args, namedArgs, tab, openclaw }) => {

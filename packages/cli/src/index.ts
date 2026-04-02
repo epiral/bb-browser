@@ -29,7 +29,8 @@ import { traceCommand } from "./commands/trace.js";
 import { fetchCommand } from "./commands/fetch.js";
 import { siteCommand } from "./commands/site.js";
 import { historyCommand } from "./commands/history.js";
-import { statusCommand } from "./commands/daemon.js";
+import { shutdownCommand, statusCommand } from "./commands/daemon.js";
+import { getDaemonPath } from "./daemon-manager.js";
 import { setJqExpression } from "./client.js";
 
 declare const __BB_BROWSER_VERSION__: string;
@@ -90,6 +91,7 @@ bb-browser - AI Agent 浏览器自动化工具
   errors [--clear]             查看/清空 JS 错误
   trace start|stop|status      录制用户操作
   history search|domains       查看浏览历史
+  daemon [status|stop] [opts]  前台运行或管理 daemon
 
 选项：
   --json               以 JSON 格式输出
@@ -122,6 +124,7 @@ interface ParsedArgs {
     jq?: string;
     openclaw?: boolean;
     port?: number;
+    since?: string;
   };
 }
 
@@ -198,6 +201,15 @@ function parseArgs(argv: string[]): ParsedArgs {
     } else if (arg === "--tab") {
       // --tab 参数及其值，无论出现在命令前后都跳过
       skipNext = true;
+    } else if (arg === "--since") {
+      // --since 参数及其值，无论出现在命令前后都跳过
+      skipNext = true;
+    } else if (arg === "--method") {
+      // --method 参数及其值，由子命令通过 process.argv 解析
+      skipNext = true;
+    } else if (arg === "--status") {
+      // --status 参数及其值，由子命令通过 process.argv 解析
+      skipNext = true;
     } else if (arg.startsWith("-")) {
       // 未知选项，忽略
     } else if (result.command === null) {
@@ -220,7 +232,13 @@ async function main(): Promise<void> {
   // 解析全局 --tab 参数
   const tabArgIdx = process.argv.indexOf('--tab');
   const globalTabId = tabArgIdx >= 0 && process.argv[tabArgIdx + 1]
-    ? parseInt(process.argv[tabArgIdx + 1], 10)
+    ? process.argv[tabArgIdx + 1]
+    : undefined;
+
+  // 解析全局 --since 参数
+  const sinceArgIdx = process.argv.indexOf('--since');
+  const globalSince = sinceArgIdx >= 0 && process.argv[sinceArgIdx + 1]
+    ? process.argv[sinceArgIdx + 1]
     : undefined;
 
   // 处理全局选项
@@ -237,7 +255,12 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (parsed.flags.help || !parsed.command) {
+  if (!parsed.command) {
+    console.log(HELP_TEXT);
+    return;
+  }
+
+  if (parsed.flags.help && parsed.command !== "daemon") {
     console.log(HELP_TEXT);
     return;
   }
@@ -407,7 +430,32 @@ async function main(): Promise<void> {
         break;
       }
 
-      case "daemon":
+      case "daemon": {
+        const daemonSubcommand = parsed.args[0];
+        if (daemonSubcommand === "status") {
+          await statusCommand({ json: parsed.flags.json });
+          break;
+        }
+        if (daemonSubcommand === "stop" || daemonSubcommand === "shutdown") {
+          await shutdownCommand({ json: parsed.flags.json });
+          break;
+        }
+
+        const daemonPath = getDaemonPath();
+        const daemonArgs = process.argv.slice(3);
+        const { spawn } = await import("node:child_process");
+        const child = spawn(process.execPath, [daemonPath, ...daemonArgs], {
+          stdio: "inherit",
+        });
+        child.on("exit", (code, signal) => {
+          if (signal) {
+            process.kill(process.pid, signal);
+            return;
+          }
+          process.exit(code ?? 0);
+        });
+        return;
+      }
 
       case "close": {
         await closeCommand({ json: parsed.flags.json, tabId: globalTabId });
@@ -476,7 +524,7 @@ async function main(): Promise<void> {
       }
 
       case "tab": {
-        await tabCommand(parsed.args, { json: parsed.flags.json });
+        await tabCommand(parsed.args, { json: parsed.flags.json, globalTabId });
         break;
       }
 
@@ -525,19 +573,23 @@ async function main(): Promise<void> {
         const withBody = process.argv.includes("--with-body");
         const bodyIndex = process.argv.findIndex(a => a === "--body");
         const body = bodyIndex >= 0 ? process.argv[bodyIndex + 1] : undefined;
-        await networkCommand(subCommand, urlOrFilter, { json: parsed.flags.json, abort, body, withBody, tabId: globalTabId });
+        const methodIndex = process.argv.findIndex(a => a === "--method");
+        const method = methodIndex >= 0 ? process.argv[methodIndex + 1] : undefined;
+        const statusIndex = process.argv.findIndex(a => a === "--status");
+        const statusFilter = statusIndex >= 0 ? process.argv[statusIndex + 1] : undefined;
+        await networkCommand(subCommand, urlOrFilter, { json: parsed.flags.json, abort, body, withBody, tabId: globalTabId, since: globalSince, method, status: statusFilter });
         break;
       }
 
       case "console": {
         const clear = process.argv.includes("--clear");
-        await consoleCommand({ json: parsed.flags.json, clear, tabId: globalTabId });
+        await consoleCommand({ json: parsed.flags.json, clear, tabId: globalTabId, since: globalSince });
         break;
       }
 
       case "errors": {
         const clear = process.argv.includes("--clear");
-        await errorsCommand({ json: parsed.flags.json, clear, tabId: globalTabId });
+        await errorsCommand({ json: parsed.flags.json, clear, tabId: globalTabId, since: globalSince });
         break;
       }
 

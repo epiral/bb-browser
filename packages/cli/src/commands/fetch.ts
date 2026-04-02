@@ -21,7 +21,7 @@ export interface FetchOptions {
   body?: string;
   headers?: string;
   output?: string;
-  tabId?: number;
+  tabId?: string | number;
 }
 
 /**

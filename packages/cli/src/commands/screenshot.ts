@@ -15,7 +15,7 @@ import { ensureDaemonRunning } from "../daemon-manager.js";
 
 export interface ScreenshotOptions {
   json?: boolean;
-  tabId?: number;
+  tabId?: string | number;
 }
 
 /**

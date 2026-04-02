@@ -12,7 +12,7 @@ import { ensureDaemonRunning } from "../daemon-manager.js";
 
 export interface GetOptions {
   json?: boolean;
-  tabId?: number;
+  tabId?: string | number;
 }
 
 /** 支持的 get 属性类型 */

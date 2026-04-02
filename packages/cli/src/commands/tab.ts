@@ -15,6 +15,7 @@ import { ensureDaemonRunning } from "../daemon-manager.js";
 
 export interface TabOptions {
   json?: boolean;
+  globalTabId?: string;
 }
 
 /**
@@ -27,7 +28,7 @@ function parseTabSubcommand(args: string[], rawArgv?: string[]): {
   action: "tab_list" | "tab_new" | "tab_select" | "tab_close";
   url?: string;
   index?: number;
-  tabId?: number;
+  tabId?: string | number;
 } {
   // 提取 --id 参数
   let tabId: number | undefined;
@@ -115,6 +116,14 @@ export async function tabCommand(
 
   // 解析子命令
   const parsed = parseTabSubcommand(args, process.argv);
+
+  // If globalTabId is set and no explicit --id was provided, use globalTabId for close/select
+  if (options.globalTabId && parsed.tabId === undefined && parsed.index === undefined) {
+    if (parsed.action === "tab_close" || parsed.action === "tab_select") {
+      const numId = parseInt(options.globalTabId, 10);
+      parsed.tabId = isNaN(numId) ? options.globalTabId : numId;
+    }
+  }
 
   // 构造请求
   const request: Request = {

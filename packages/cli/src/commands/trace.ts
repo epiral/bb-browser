@@ -12,7 +12,7 @@ import { sendCommand } from "../client.js";
 
 interface TraceOptions {
   json?: boolean;
-  tabId?: number;
+  tabId?: string | number;
 }
 
 export async function traceCommand(

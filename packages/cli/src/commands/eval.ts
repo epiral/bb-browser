@@ -9,7 +9,7 @@ import { ensureDaemonRunning } from "../daemon-manager.js";
 
 export interface EvalOptions {
   json?: boolean;
-  tabId?: number;
+  tabId?: string | number;
 }
 
 export async function evalCommand(

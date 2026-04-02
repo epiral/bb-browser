@@ -71,13 +71,6 @@ bb-browser site xueqiu/hot-stock 5 --openclaw --jq '.items[] | {name, changePerc
 
 ClawHub Skill: [bb-browser-openclaw](https://clawhub.ai/yan5xu/bb-browser)
 
-### Chrome 扩展（独立模式）
-
-不使用 OpenClaw 时（Claude Code MCP、独立 CLI）需要安装扩展：
-
-1. 从 [Releases](https://github.com/epiral/bb-browser/releases/latest) 下载 zip
-2. 解压 → `chrome://extensions/` → 开发者模式 → 加载已解压的扩展程序
-
 ### MCP 接入（Claude Code / Cursor）
 
 ```json
@@ -172,7 +165,7 @@ bb-browser site info xueqiu/stock   # 查看 adapter 参数、示例、域名
 
 ## Daemon 配置
 
-Daemon 默认绑定 `localhost:19824`，可通过 `--host` 自定义监听地址：
+Daemon 默认绑定 `127.0.0.1:19824`，可通过 `--host` 自定义监听地址：
 
 ```bash
 bb-browser daemon --host 127.0.0.1    # 仅 IPv4（解决 macOS IPv6 问题）
@@ -185,10 +178,15 @@ bb-browser daemon --host 0.0.0.0      # 监听所有网卡（用于 Tailscale / 
 AI Agent (Claude Code, Codex, Cursor 等)
        │ CLI 或 MCP (stdio)
        ▼
-bb-browser CLI ──HTTP──▶ Daemon ──SSE──▶ Chrome 扩展
-                                              │
-                                              ▼ chrome.debugger (CDP)
-                                         你的真实浏览器
+bb-browser CLI ──HTTP──▶ Daemon ──CDP WebSocket──▶ 你的真实浏览器
+                           │
+                    ┌──────┴──────┐
+                    │ Per-tab     │
+                    │ 事件缓存    │
+                    │ (network,   │
+                    │  console,   │
+                    │  errors)    │
+                    └─────────────┘
 ```
 
 ## 许可证

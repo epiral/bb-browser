@@ -12,7 +12,7 @@ import { ensureDaemonRunning } from "../daemon-manager.js";
 
 export interface ScrollOptions {
   json?: boolean;
-  tabId?: number;
+  tabId?: string | number;
 }
 
 export type ScrollDirection = "up" | "down" | "left" | "right";

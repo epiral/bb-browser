@@ -593,19 +593,13 @@ function clearPersistedRefs(targetId: string): void {
 function loadBuildDomTreeScript(): string {
   const currentDir = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
-    path.resolve(currentDir, "./extension/buildDomTree.js"),
-    // npm installed: dist/cli.js → ../extension/buildDomTree.js
-    path.resolve(currentDir, "../extension/buildDomTree.js"),
-    path.resolve(currentDir, "../extension/dist/buildDomTree.js"),
-    path.resolve(currentDir, "../packages/extension/public/buildDomTree.js"),
-    path.resolve(currentDir, "../packages/extension/dist/buildDomTree.js"),
-    // dev mode: packages/cli/dist/ → ../../../extension/
-    path.resolve(currentDir, "../../../extension/buildDomTree.js"),
-    path.resolve(currentDir, "../../../extension/dist/buildDomTree.js"),
-    // dev mode: packages/cli/src/ → ../../extension/
-    path.resolve(currentDir, "../../extension/buildDomTree.js"),
-    path.resolve(currentDir, "../../../packages/extension/dist/buildDomTree.js"),
-    path.resolve(currentDir, "../../../packages/extension/public/buildDomTree.js"),
+    // Built dist: dist/cli.js → ../packages/shared/buildDomTree.js
+    path.resolve(currentDir, "../packages/shared/buildDomTree.js"),
+    // Dev mode: packages/cli/src/ → ../../shared/buildDomTree.js
+    path.resolve(currentDir, "../../shared/buildDomTree.js"),
+    // npm installed: dist/cli.js → same level
+    path.resolve(currentDir, "./buildDomTree.js"),
+    path.resolve(currentDir, "../buildDomTree.js"),
   ];
   for (const candidate of candidates) {
     try {

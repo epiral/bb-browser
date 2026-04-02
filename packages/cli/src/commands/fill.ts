@@ -12,7 +12,7 @@ import { ensureDaemonRunning } from "../daemon-manager.js";
 
 export interface FillOptions {
   json?: boolean;
-  tabId?: number;
+  tabId?: string | number;
 }
 
 /**

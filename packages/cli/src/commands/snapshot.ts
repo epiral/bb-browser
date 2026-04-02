@@ -17,7 +17,7 @@ export interface SnapshotOptions {
   maxDepth?: number;
   /** CSS 选择器范围 */
   selector?: string;
-  tabId?: number;
+  tabId?: string | number;
 }
 
 export async function snapshotCommand(

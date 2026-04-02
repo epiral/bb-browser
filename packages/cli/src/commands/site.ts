@@ -39,7 +39,7 @@ function checkCliUpdate(): void {
 
 export interface SiteOptions {
   json?: boolean;
-  tabId?: number;
+  tabId?: string | number;
   days?: number;
   jq?: string;
   openclaw?: boolean;

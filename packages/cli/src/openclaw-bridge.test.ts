@@ -2,24 +2,24 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildOpenClawArgs, getOpenClawExecTimeout } from "./openclaw-bridge.js";
 
-test("places timeout after the browser subcommand", () => {
+test("places browser-level flags before subcommand", () => {
   assert.deepEqual(buildOpenClawArgs(["status", "--json"], 5000), [
     "openclaw",
     "browser",
-    "status",
+    "--json",
     "--timeout",
     "5000",
-    "--json",
+    "status",
   ]);
 });
 
-test("preserves subcommand flags and values after inserting timeout", () => {
+test("preserves subcommand flags and values after subcommand", () => {
   assert.deepEqual(buildOpenClawArgs(["evaluate", "--fn", "() => document.title", "--target-id", "abc123"], 120000), [
     "openclaw",
     "browser",
-    "evaluate",
     "--timeout",
     "120000",
+    "evaluate",
     "--fn",
     "() => document.title",
     "--target-id",

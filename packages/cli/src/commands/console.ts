@@ -2,22 +2,32 @@
  * console 命令 - 查看控制台消息
  */
 
-import { generateId } from "@bb-browser/shared";
+import { generateId, type Request } from "@bb-browser/shared";
 import { sendCommand } from "../client.js";
 
 interface ConsoleOptions {
   json?: boolean;
   clear?: boolean;
-  tabId?: number;
+  tabId?: string | number;
+  since?: string;        // "last_action" or a seq number
 }
 
 export async function consoleCommand(options: ConsoleOptions = {}): Promise<void> {
-  const response = await sendCommand({
+  // Parse since: if numeric string, convert to number
+  let since: string | number | undefined;
+  if (options.since) {
+    const num = parseInt(options.since, 10);
+    since = (!isNaN(num) && String(num) === options.since) ? num : options.since;
+  }
+
+  const request: Request & { since?: string | number } = {
     id: generateId(),
     action: "console",
     consoleCommand: options.clear ? "clear" : "get",
     tabId: options.tabId,
-  });
+    since,
+  };
+  const response = await sendCommand(request as Request);
 
   if (options.json) {
     console.log(JSON.stringify(response));

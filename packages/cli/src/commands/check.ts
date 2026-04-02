@@ -14,7 +14,7 @@ import { ensureDaemonRunning } from "../daemon-manager.js";
 
 export interface CheckOptions {
   json?: boolean;
-  tabId?: number;
+  tabId?: string | number;
 }
 
 /**

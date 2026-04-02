@@ -1,56 +1,58 @@
 /**
- * HTTP 服务器
+ * HTTP Server for the CDP-direct daemon.
  *
- * 提供 REST API 端点：
- * - POST /command: CLI 发送命令
- * - GET /sse: 扩展订阅命令流
- * - POST /result: 扩展回传结果
- * - GET /status: 查询状态
+ * Endpoints:
+ *   POST /command   — receive Request, dispatch via CDP, return Response
+ *   GET  /status    — daemon health + per-tab stats
+ *   POST /shutdown  — graceful shutdown
+ *
+ * Bearer token authentication (optional, but enforced when token is set).
+ * Two-phase startup: HTTP server starts immediately, CDP connects async.
+ * Commands received before CDP is ready queue and wait.
  */
 
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
-import type { Request, Response } from "@bb-browser/shared";
-import { DAEMON_PORT } from "@bb-browser/shared";
-import { SSEManager } from "./sse-manager.js";
-import { RequestManager } from "./request-manager.js";
+import type { Request } from "@bb-browser/shared";
+import { COMMAND_TIMEOUT, DAEMON_PORT } from "@bb-browser/shared";
+import { CdpConnection } from "./cdp-connection.js";
+import { dispatchRequest } from "./command-dispatch.js";
 
 export interface HttpServerOptions {
   host?: string;
   port?: number;
+  token?: string;
+  cdp: CdpConnection;
   onShutdown?: () => void;
 }
 
-/**
- * HTTP 服务器
- */
 export class HttpServer {
   private server: Server | null = null;
-  private host: string;
-  private port: number;
-  private startTime: number = 0;
-  private onShutdown?: () => void;
+  private readonly host: string;
+  private readonly port: number;
+  private readonly token: string | null;
+  private readonly cdp: CdpConnection;
+  private readonly onShutdown?: () => void;
+  private startTime = 0;
 
-  readonly sseManager = new SSEManager();
-  readonly requestManager = new RequestManager();
-
-  constructor(options: HttpServerOptions = {}) {
+  constructor(options: HttpServerOptions) {
     this.host = options.host ?? "127.0.0.1";
     this.port = options.port ?? DAEMON_PORT;
+    this.token = options.token ?? null;
+    this.cdp = options.cdp;
     this.onShutdown = options.onShutdown;
   }
 
-  /**
-   * 启动服务器
-   */
+  // ---------------------------------------------------------------------------
+  // Lifecycle
+  // ---------------------------------------------------------------------------
+
   async start(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.server = createServer((req, res) => {
         this.handleRequest(req, res);
       });
 
-      this.server.on("error", (error) => {
-        reject(error);
-      });
+      this.server.on("error", reject);
 
       this.server.listen(this.port, this.host, () => {
         this.startTime = Date.now();
@@ -59,44 +61,40 @@ export class HttpServer {
     });
   }
 
-  /**
-   * 停止服务器
-   */
   async stop(): Promise<void> {
-    // 清理 pending 请求
-    this.requestManager.clear();
-
-    // 断开 SSE 连接
-    this.sseManager.disconnect();
-
-    // 关闭服务器
     if (this.server) {
       return new Promise((resolve) => {
-        this.server!.close(() => {
-          resolve();
-        });
+        this.server!.close(() => resolve());
       });
     }
   }
 
-  /**
-   * 获取运行时间（秒）
-   */
   get uptime(): number {
-    if (this.startTime === 0) {
-      return 0;
-    }
+    if (this.startTime === 0) return 0;
     return Math.floor((Date.now() - this.startTime) / 1000);
   }
 
-  /**
-   * 路由请求
-   */
+  // ---------------------------------------------------------------------------
+  // Auth
+  // ---------------------------------------------------------------------------
+
+  private checkAuth(req: IncomingMessage, res: ServerResponse): boolean {
+    if (!this.token) return true;
+    const auth = req.headers.authorization ?? "";
+    if (auth === `Bearer ${this.token}`) return true;
+    this.sendJson(res, 401, { error: "Unauthorized" });
+    return false;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Routing
+  // ---------------------------------------------------------------------------
+
   private handleRequest(req: IncomingMessage, res: ServerResponse): void {
-    // CORS 支持
+    // CORS
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
     if (req.method === "OPTIONS") {
       res.writeHead(204);
@@ -104,14 +102,12 @@ export class HttpServer {
       return;
     }
 
+    if (!this.checkAuth(req, res)) return;
+
     const url = req.url ?? "/";
 
     if (req.method === "POST" && url === "/command") {
       this.handleCommand(req, res);
-    } else if (req.method === "GET" && url === "/sse") {
-      this.handleSSE(req, res);
-    } else if (req.method === "POST" && url === "/result") {
-      this.handleResult(req, res);
     } else if (req.method === "GET" && url === "/status") {
       this.handleStatus(req, res);
     } else if (req.method === "POST" && url === "/shutdown") {
@@ -121,58 +117,43 @@ export class HttpServer {
     }
   }
 
-  /**
-   * POST /command - CLI 发送命令
-   */
+  // ---------------------------------------------------------------------------
+  // POST /command
+  // ---------------------------------------------------------------------------
+
   private async handleCommand(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
       const body = await this.readBody(req);
       const request = JSON.parse(body) as Request;
 
-      // 检查扩展是否连接
-      if (!this.sseManager.isConnected) {
-        this.sendJson(res, 503, {
-          id: request.id,
-          success: false,
-          error: "Extension not connected",
-        });
-        return;
+      // Wait for CDP to be ready (two-phase startup)
+      if (!this.cdp.connected) {
+        try {
+          await Promise.race([
+            this.cdp.waitUntilReady(),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("CDP connection timeout")), COMMAND_TIMEOUT),
+            ),
+          ]);
+        } catch (error) {
+          this.sendJson(res, 503, {
+            id: request.id,
+            success: false,
+            error: error instanceof Error ? error.message : "CDP not ready",
+          });
+          return;
+        }
       }
 
-      // 创建 Promise 等待响应
-      const responsePromise = new Promise<Response>((resolve, reject) => {
-        this.requestManager.add(request.id, resolve, reject);
-      });
-
-      // 推送命令给扩展
-      const sent = this.sseManager.sendCommand(request);
-      if (!sent) {
-        // 移除 pending 请求
-        this.requestManager.resolve(request.id, {
-          id: request.id,
-          success: false,
-          error: "Failed to send command to extension",
-        });
-        this.sendJson(res, 503, {
-          id: request.id,
-          success: false,
-          error: "Failed to send command to extension",
-        });
-        return;
-      }
-
-      // 等待响应
-      try {
-        const response = await responsePromise;
-        this.sendJson(res, 200, response);
-      } catch (error) {
-        // 超时或其他错误
-        this.sendJson(res, 408, {
-          id: request.id,
-          success: false,
-          error: error instanceof Error ? error.message : "Unknown error",
-        });
-      }
+      // Dispatch with timeout
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Command timeout")), COMMAND_TIMEOUT),
+      );
+      const response = await Promise.race([
+        dispatchRequest(this.cdp, request),
+        timeout,
+      ]);
+      this.sendJson(res, 200, response);
     } catch (error) {
       this.sendJson(res, 400, {
         success: false,
@@ -181,57 +162,37 @@ export class HttpServer {
     }
   }
 
-  /**
-   * GET /sse - 扩展订阅命令流
-   */
-  private handleSSE(_req: IncomingMessage, res: ServerResponse): void {
-    this.sseManager.connect(res);
-  }
+  // ---------------------------------------------------------------------------
+  // GET /status
+  // ---------------------------------------------------------------------------
 
-  /**
-   * POST /result - 扩展回传结果
-   */
-  private async handleResult(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    try {
-      const body = await this.readBody(req);
-      const result = JSON.parse(body) as Response;
-
-      // 匹配 pending 请求
-      const resolved = this.requestManager.resolve(result.id, result);
-
-      if (resolved) {
-        this.sendJson(res, 200, { code: 0, message: "ok" });
-      } else {
-        // 找不到对应请求（可能已超时）
-        this.sendJson(res, 200, { code: 1, message: "Request not found or already expired" });
-      }
-    } catch (error) {
-      this.sendJson(res, 400, {
-        code: -1,
-        message: error instanceof Error ? error.message : "Invalid request",
-      });
-    }
-  }
-
-  /**
-   * GET /status - 查询状态
-   */
   private handleStatus(_req: IncomingMessage, res: ServerResponse): void {
+    const tabs = this.cdp.tabManager.allTabs().map((tab) => ({
+      shortId: tab.shortId,
+      targetId: tab.targetId,
+      networkRequests: tab.networkRequests.size,
+      consoleMessages: tab.consoleMessages.size,
+      jsErrors: tab.jsErrors.size,
+      lastActionSeq: tab.lastActionSeq,
+    }));
+
     this.sendJson(res, 200, {
       running: true,
-      extensionConnected: this.sseManager.isConnected,
-      pendingRequests: this.requestManager.pendingCount,
+      cdpConnected: this.cdp.connected,
       uptime: this.uptime,
+      currentSeq: this.cdp.tabManager.currentSeq(),
+      currentTargetId: this.cdp.currentTargetId,
+      tabs,
     });
   }
 
-  /**
-   * POST /shutdown - 关闭服务器
-   */
+  // ---------------------------------------------------------------------------
+  // POST /shutdown
+  // ---------------------------------------------------------------------------
+
   private handleShutdown(_req: IncomingMessage, res: ServerResponse): void {
     this.sendJson(res, 200, { code: 0, message: "Shutting down" });
-    
-    // 延迟关闭，确保响应发送完成
+
     setTimeout(() => {
       if (this.onShutdown) {
         this.onShutdown();
@@ -239,32 +200,25 @@ export class HttpServer {
     }, 100);
   }
 
-  /**
-   * 读取请求体
-   */
+  // ---------------------------------------------------------------------------
+  // Utility
+  // ---------------------------------------------------------------------------
+
   private readBody(req: IncomingMessage): Promise<string> {
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
-
-      req.on("data", (chunk: Buffer) => {
-        chunks.push(chunk);
-      });
-
-      req.on("end", () => {
-        resolve(Buffer.concat(chunks).toString("utf-8"));
-      });
-
-      req.on("error", (error) => {
-        reject(error);
-      });
+      req.on("data", (chunk: Buffer) => chunks.push(chunk));
+      req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
+      req.on("error", reject);
     });
   }
 
-  /**
-   * 发送 JSON 响应
-   */
   private sendJson(res: ServerResponse, status: number, data: unknown): void {
-    res.writeHead(status, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(data));
+    const body = JSON.stringify(data);
+    res.writeHead(status, {
+      "Content-Type": "application/json",
+      "Content-Length": Buffer.byteLength(body),
+    });
+    res.end(body);
   }
 }

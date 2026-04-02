@@ -11,7 +11,7 @@ import { ensureDaemonRunning } from "../daemon-manager.js";
 
 export interface FrameOptions {
   json?: boolean;
-  tabId?: number;
+  tabId?: string | number;
 }
 
 /**

@@ -9,7 +9,7 @@ import { ensureDaemonRunning } from "../daemon-manager.js";
 
 export interface CloseOptions {
   json?: boolean;
-  tabId?: number;
+  tabId?: string | number;
 }
 
 export async function closeCommand(options: CloseOptions = {}): Promise<void> {

@@ -2,7 +2,7 @@
  * network 命令 - 网络监控和拦截
  */
 
-import { generateId } from "@bb-browser/shared";
+import { generateId, type Request } from "@bb-browser/shared";
 import { sendCommand } from "../client.js";
 
 interface NetworkOptions {
@@ -10,7 +10,10 @@ interface NetworkOptions {
   abort?: boolean;
   body?: string;
   withBody?: boolean;
-  tabId?: number;
+  tabId?: string | number;
+  since?: string;        // "last_action" or a seq number
+  method?: string;       // filter by HTTP method (GET, POST, etc.)
+  status?: string;       // filter by status code (e.g. "200", "404")
 }
 
 export async function networkCommand(
@@ -18,7 +21,14 @@ export async function networkCommand(
   urlOrFilter?: string,
   options: NetworkOptions = {}
 ): Promise<void> {
-  const response = await sendCommand({
+  // Parse since: if numeric string, convert to number
+  let since: string | number | undefined;
+  if (subCommand === "requests" && options.since) {
+    const num = parseInt(options.since, 10);
+    since = (!isNaN(num) && String(num) === options.since) ? num : options.since;
+  }
+
+  const request: Request & { since?: string | number; method?: string; status?: string } = {
     id: generateId(),
     action: "network",
     networkCommand: subCommand as "requests" | "route" | "unroute" | "clear",
@@ -29,8 +39,12 @@ export async function networkCommand(
       body: options.body,
     } : undefined,
     withBody: subCommand === "requests" ? options.withBody : undefined,
+    since,
+    method: subCommand === "requests" ? options.method : undefined,
+    status: subCommand === "requests" ? options.status : undefined,
     tabId: options.tabId,
-  });
+  };
+  const response = await sendCommand(request as Request);
 
   if (options.json) {
     console.log(JSON.stringify(response));
