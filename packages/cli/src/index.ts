@@ -30,7 +30,7 @@ import { fetchCommand } from "./commands/fetch.js";
 import { siteCommand } from "./commands/site.js";
 import { historyCommand } from "./commands/history.js";
 import { shutdownCommand, statusCommand } from "./commands/daemon.js";
-import { getDaemonPath } from "./daemon-manager.js";
+import { getDaemonPath, setDaemonSpawnOptions } from "./daemon-manager.js";
 import { setJqExpression } from "./client.js";
 
 declare const __BB_BROWSER_VERSION__: string;
@@ -96,6 +96,7 @@ bb-browser - AI Agent 浏览器自动化工具
 选项：
   --json               以 JSON 格式输出
   --port <n>           指定 Chrome CDP 端口
+  --host <addr>        指定 daemon 绑定地址（默认自动检测，macOS 建议 127.0.0.1）
   --openclaw           优先复用 OpenClaw 浏览器实例
   --jq <expr>          对 JSON 输出应用 jq 过滤（直接作用于数据，跳过 id/success 信封）
   -i, --interactive    只输出可交互元素（snapshot 命令）
@@ -124,6 +125,7 @@ interface ParsedArgs {
     jq?: string;
     openclaw?: boolean;
     port?: number;
+    host?: string;
     since?: string;
   };
 }
@@ -168,6 +170,12 @@ function parseArgs(argv: string[]): ParsedArgs {
       const nextIdx = args.indexOf(arg) + 1;
       if (nextIdx < args.length) {
         result.flags.port = parseInt(args[nextIdx], 10);
+      }
+    } else if (arg === "--host") {
+      skipNext = true;
+      const nextIdx = args.indexOf(arg) + 1;
+      if (nextIdx < args.length) {
+        result.flags.host = args[nextIdx];
       }
     } else if (arg === "--help" || arg === "-h") {
       result.flags.help = true;
@@ -228,6 +236,14 @@ function parseArgs(argv: string[]): ParsedArgs {
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv);
   setJqExpression(parsed.flags.jq);
+
+  // Forward --port / --host to daemon auto-spawn
+  if (parsed.flags.port || parsed.flags.host) {
+    setDaemonSpawnOptions({
+      cdpPort: parsed.flags.port,
+      host: parsed.flags.host,
+    });
+  }
 
   // 解析全局 --tab 参数
   const tabArgIdx = process.argv.indexOf('--tab');
