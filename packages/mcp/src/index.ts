@@ -1,12 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { DAEMON_BASE_URL, COMMAND_TIMEOUT, generateId } from "@bb-browser/shared";
+import { COMMAND_TIMEOUT, generateId } from "@bb-browser/shared";
 import type { Request, Response } from "@bb-browser/shared";
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
+import { daemonCommand, ensureDaemon } from "./daemon-client.js";
 
 declare const __BB_BROWSER_VERSION__: string;
 
@@ -19,13 +20,6 @@ const CHROME_NOT_CONNECTED_HINT = [
 
 const sessionOpenedTabs = new Set<string>();
 
-function getDaemonPath(): string {
-  const currentDir = dirname(fileURLToPath(import.meta.url));
-  const sameDirPath = resolve(currentDir, "daemon.js");
-  if (existsSync(sameDirPath)) return sameDirPath;
-  return resolve(currentDir, "../../daemon/dist/index.js");
-}
-
 function getCliPath(): string {
   const currentDir = dirname(fileURLToPath(import.meta.url));
   const sameDirPath = resolve(currentDir, "cli.js");
@@ -33,48 +27,16 @@ function getCliPath(): string {
   return resolve(currentDir, "../../cli/dist/index.js");
 }
 
-async function isDaemonRunning(): Promise<boolean> {
-  try {
-    const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), 2000);
-    const res = await fetch(`${DAEMON_BASE_URL}/status`, { signal: controller.signal });
-    clearTimeout(t);
-    return res.ok;
-  } catch { return false; }
-}
-
-async function ensureDaemon(): Promise<void> {
-  if (await isDaemonRunning()) return;
-  const child = spawn(process.execPath, [getDaemonPath()], {
-    detached: true, stdio: "ignore", env: { ...process.env },
-  });
-  child.unref();
-  // wait up to 5s
-  for (let i = 0; i < 25; i++) {
-    await new Promise(r => setTimeout(r, 200));
-    if (await isDaemonRunning()) return;
-  }
-}
-
 async function sendCommand(request: Request): Promise<Response> {
-  await ensureDaemon();
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), COMMAND_TIMEOUT);
   try {
-    const response = await fetch(`${DAEMON_BASE_URL}/command`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(request),
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-    if (response.status === 503) {
+    await ensureDaemon();
+    return await daemonCommand(request);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("Daemon HTTP 503")) {
       return { id: request.id, success: false, error: CHROME_NOT_CONNECTED_HINT };
     }
-    return (await response.json()) as Response;
-  } catch {
-    clearTimeout(timeoutId);
-    return { id: request.id, success: false, error: "Failed to start daemon. Run manually: bb-browser daemon" };
+    return { id: request.id, success: false, error: message || "Failed to start daemon. Run manually: bb-browser daemon" };
   }
 }
 
