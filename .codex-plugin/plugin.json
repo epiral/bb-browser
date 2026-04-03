@@ -19,5 +19,6 @@
     "longDescription": "Your browser is the API. CLI + MCP server for AI agents to control Chrome with your login state.",
     "category": "Productivity",
     "websiteURL": "https://github.com/epiral/bb-browser"
-  }
+  },
+  "skills": "./skills/"
 }
