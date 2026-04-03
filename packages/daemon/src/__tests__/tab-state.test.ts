@@ -165,6 +165,45 @@ describe("TabState", () => {
       const tab = makeTab(mgr);
       tab.updateNetworkFailure("unknown", "reason");
     });
+
+    it("keeps requests from different origin targets separate even when requestId matches", () => {
+      const mgr = makeManager();
+      const tab = makeTab(mgr);
+      tab.addNetworkRequest("shared-id", {
+        url: "https://main.example.com/api",
+        method: "GET",
+        type: "XHR",
+        timestamp: Date.now(),
+      }, "page-target");
+      tab.addNetworkRequest("shared-id", {
+        url: "https://iframe.example.com/api",
+        method: "GET",
+        type: "XHR",
+        timestamp: Date.now(),
+      }, "iframe-target");
+
+      tab.updateNetworkResponse("shared-id", { status: 200 }, "page-target");
+      tab.updateNetworkResponse("shared-id", { status: 204 }, "iframe-target");
+
+      const { items } = tab.getNetworkRequests();
+      assert.equal(items.length, 2);
+      assert.deepEqual(items.map((item) => item.status), [200, 204]);
+    });
+
+    it("tracks the origin target for each network entry", () => {
+      const mgr = makeManager();
+      const tab = makeTab(mgr);
+      tab.addNetworkRequest("iframe-req", {
+        url: "https://iframe.example.com/data",
+        method: "GET",
+        type: "XHR",
+        timestamp: Date.now(),
+      }, "iframe-target");
+
+      const { items } = tab.getNetworkRequests();
+      assert.equal(items.length, 1);
+      assert.equal(tab.getNetworkOriginTargetId(items[0].seq), "iframe-target");
+    });
   });
 
   describe("console events", () => {
