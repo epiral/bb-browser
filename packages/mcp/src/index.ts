@@ -3,10 +3,28 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { DAEMON_BASE_URL, COMMAND_TIMEOUT, generateId } from "@bb-browser/shared";
 import type { Request, Response } from "@bb-browser/shared";
 import { execFile, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { dirname, resolve, join } from "node:path";
+import { homedir } from "node:os";
 import { z } from "zod";
+
+const DAEMON_JSON = join(homedir(), ".bb-browser", "daemon.json");
+
+function getDaemonToken(): string | null {
+  try {
+    const data = JSON.parse(readFileSync(DAEMON_JSON, "utf8"));
+    return data.token ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getDaemonToken();
+  if (!token) return {};
+  return { "Authorization": `Bearer ${token}` };
+}
 
 declare const __BB_BROWSER_VERSION__: string;
 
@@ -37,7 +55,10 @@ async function isDaemonRunning(): Promise<boolean> {
   try {
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), 2000);
-    const res = await fetch(`${DAEMON_BASE_URL}/status`, { signal: controller.signal });
+    const res = await fetch(`${DAEMON_BASE_URL}/status`, {
+      headers: authHeaders(),
+      signal: controller.signal,
+    });
     clearTimeout(t);
     return res.ok;
   } catch { return false; }
@@ -88,7 +109,7 @@ async function sendCommand(request: Request): Promise<Response> {
   try {
     const response = await fetch(`${DAEMON_BASE_URL}/command`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(request),
       signal: controller.signal,
     });
