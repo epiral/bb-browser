@@ -43,8 +43,11 @@ export class TabState {
   consoleMessages = new RingBuffer<SeqConsoleMessage>(CONSOLE_CAPACITY);
   jsErrors = new RingBuffer<SeqJSError>(ERRORS_CAPACITY);
 
-  /** Lookup in-flight network requests by requestId for response/failure updates. */
-  private networkByRequestId = new Map<string, SeqNetworkRequest>();
+  /** Lookup in-flight network requests by originTargetId + requestId for response/failure updates. */
+  private networkByScopedId = new Map<string, SeqNetworkRequest>();
+
+  /** seq -> origin target ID, used to fetch bodies from iframe child targets. */
+  private networkOriginTargetBySeq = new Map<number, string>();
 
   /** seq of the last user-initiated action on this tab. */
   lastActionSeq = 0;
@@ -78,11 +81,20 @@ export class TabState {
 
   // --------------- Network events ---------------
 
-  addNetworkRequest(requestId: string, info: Omit<NetworkRequestInfo, "requestId">): void {
+  private buildScopedRequestId(originTargetId: string, requestId: string): string {
+    return `${originTargetId}:${requestId}`;
+  }
+
+  addNetworkRequest(
+    requestId: string,
+    info: Omit<NetworkRequestInfo, "requestId">,
+    originTargetId = this.targetId,
+  ): void {
     const seq = this.nextSeq();
     const entry: SeqNetworkRequest = { ...info, requestId, seq };
     this.networkRequests.push(entry);
-    this.networkByRequestId.set(requestId, entry);
+    this.networkByScopedId.set(this.buildScopedRequestId(originTargetId, requestId), entry);
+    this.networkOriginTargetBySeq.set(seq, originTargetId);
   }
 
   updateNetworkResponse(
@@ -93,8 +105,11 @@ export class TabState {
       responseHeaders?: Record<string, string>;
       mimeType?: string;
     },
+    originTargetId = this.targetId,
   ): void {
-    const existing = this.networkByRequestId.get(requestId);
+    const existing = this.networkByScopedId.get(
+      this.buildScopedRequestId(originTargetId, requestId),
+    );
     if (!existing) return;
     if (data.status !== undefined) existing.status = data.status;
     if (data.statusText !== undefined) existing.statusText = data.statusText;
@@ -102,11 +117,21 @@ export class TabState {
     if (data.mimeType !== undefined) existing.mimeType = data.mimeType;
   }
 
-  updateNetworkFailure(requestId: string, reason: string): void {
-    const existing = this.networkByRequestId.get(requestId);
+  updateNetworkFailure(
+    requestId: string,
+    reason: string,
+    originTargetId = this.targetId,
+  ): void {
+    const existing = this.networkByScopedId.get(
+      this.buildScopedRequestId(originTargetId, requestId),
+    );
     if (!existing) return;
     existing.failed = true;
     existing.failureReason = reason;
+  }
+
+  getNetworkOriginTargetId(seq: number): string | undefined {
+    return this.networkOriginTargetBySeq.get(seq);
   }
 
   // --------------- Console events ---------------
@@ -244,7 +269,8 @@ export class TabState {
 
   clearNetwork(): void {
     this.networkRequests.clear();
-    this.networkByRequestId.clear();
+    this.networkByScopedId.clear();
+    this.networkOriginTargetBySeq.clear();
   }
 
   clearConsole(): void {

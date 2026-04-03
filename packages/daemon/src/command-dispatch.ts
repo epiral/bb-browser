@@ -950,8 +950,9 @@ export async function dispatchRequest(
               items.map(async (item) => {
                 if (item.failed || item.responseBody !== undefined || item.bodyError !== undefined) return;
                 try {
+                  const responseTargetId = tab.getNetworkOriginTargetId(item.seq) ?? target.id;
                   const body = await cdp.sessionCommand<{ body: string; base64Encoded: boolean }>(
-                    target.id,
+                    responseTargetId,
                     "Network.getResponseBody",
                     { requestId: item.requestId },
                   );
