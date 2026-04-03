@@ -175,6 +175,7 @@ export async function launchManagedBrowser(port: number = DEFAULT_CDP_PORT): Pro
     "--disable-background-networking",
     "--disable-component-update",
     "--disable-features=Translate,MediaRouter",
+    "--disable-web-security",
     "--disable-session-crashed-bubble",
     "--hide-crash-restore-bubble",
     "about:blank",
