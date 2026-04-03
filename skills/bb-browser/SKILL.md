@@ -22,6 +22,8 @@ allowed-tools: Bash(bb-browser:*)
 bb-browser open <url>        # 打开页面（新 tab）
 bb-browser snapshot -i       # 获取可交互元素
 bb-browser click @5          # 点击元素
+bb-browser click --selector ".submit"  # 按 CSS 选择器点击
+bb-browser click --coord 320,200       # 按视口坐标点击
 bb-browser fill @3 "text"    # 填写输入框
 bb-browser close             # 完成后关闭 tab
 ```
@@ -129,6 +131,8 @@ bb-browser snapshot --json      # JSON 格式输出
 
 ```bash
 bb-browser click @5             # 点击
+bb-browser click --selector ".submit"  # 按 CSS 选择器点击
+bb-browser click --coord 320,200       # 按视口坐标点击
 bb-browser hover @5             # 悬停
 bb-browser fill @3 "text"       # 清空并填写
 bb-browser type @3 "text"       # 追加输入（不清空）
@@ -279,7 +283,7 @@ bb-browser eval "[...document.querySelectorAll('a')].map(a => a.href).join('\n')
 
 ### 操作页面元素（用 snapshot -i）
 
-当需要点击、填写、选择时，用 `snapshot -i` 获取可交互元素：
+当需要点击、填写、选择时，优先用 `snapshot -i` 获取可交互元素；如果已经知道精确选择器，或要点击固定坐标，也可以直接使用 `click --selector` / `click --coord`：
 
 ```bash
 bb-browser snapshot -i
@@ -290,6 +294,8 @@ bb-browser snapshot -i
 bb-browser fill @2 "username"
 bb-browser fill @3 "password"
 bb-browser click @1
+bb-browser click --selector "button[type=submit]"
+bb-browser click --coord 320,200
 ```
 
 `-i` 只显示可交互元素，过滤掉大量无关内容。
