@@ -12,7 +12,7 @@ import {
   type ChildProcess,
 } from "node:child_process";
 import { readFile, unlink } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import path from "node:path";
 import os from "node:os";
@@ -24,7 +24,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Constants
 // ---------------------------------------------------------------------------
 
-const DAEMON_JSON = path.join(os.homedir(), ".bb-browser", "daemon.json");
+// Use isolated temp dir to avoid conflicts with parallel test suites
+const TEST_HOME = path.join(os.tmpdir(), `bb-browser-test-lifecycle-${process.pid}`);
+mkdirSync(TEST_HOME, { recursive: true });
+process.env.BB_BROWSER_HOME = TEST_HOME;
+const DAEMON_JSON = path.join(TEST_HOME, "daemon.json");
 
 // Each test gets unique ports to avoid EADDRINUSE
 let portCounter = 49800;

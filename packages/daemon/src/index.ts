@@ -24,7 +24,7 @@ import { TabStateManager } from "./tab-state.js";
 // Constants
 // ---------------------------------------------------------------------------
 
-const DAEMON_DIR = path.join(os.homedir(), ".bb-browser");
+const DAEMON_DIR = process.env.BB_BROWSER_HOME || path.join(os.homedir(), ".bb-browser");
 const DAEMON_JSON = path.join(DAEMON_DIR, "daemon.json");
 const DEFAULT_CDP_PORT = 19825;
 

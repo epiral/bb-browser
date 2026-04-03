@@ -18,7 +18,7 @@ import { discoverCdpPort } from "./cdp-discovery.js";
 // Paths & types
 // ---------------------------------------------------------------------------
 
-const DAEMON_DIR = path.join(os.homedir(), ".bb-browser");
+const DAEMON_DIR = process.env.BB_BROWSER_HOME || path.join(os.homedir(), ".bb-browser");
 const DAEMON_JSON = path.join(DAEMON_DIR, "daemon.json");
 
 interface DaemonInfo {
