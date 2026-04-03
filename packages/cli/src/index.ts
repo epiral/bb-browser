@@ -249,10 +249,9 @@ async function main(): Promise<void> {
 
   if (process.argv.includes("--mcp")) {
     const mcpPath = fileURLToPath(new URL("./mcp.js", import.meta.url));
-    const { spawn } = await import("node:child_process");
-    const child = spawn(process.execPath, [mcpPath], { stdio: "inherit" });
-    child.on("exit", (code) => process.exit(code ?? 0));
-    return;
+    const { spawnSync } = await import("node:child_process");
+    const result = spawnSync(process.execPath, [mcpPath], { stdio: "inherit" });
+    process.exit(result.status ?? 0);
   }
 
   if (!parsed.command) {
