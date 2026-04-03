@@ -146,6 +146,8 @@ bb-browser site 36kr/newsflash
 bb-browser open https://example.com
 bb-browser snapshot -i                # 可访问性树
 bb-browser click @3                   # 点击元素
+bb-browser click --selector ".submit" # 按 CSS 选择器点击
+bb-browser click --coord 320,200      # 按视口坐标点击
 bb-browser fill @5 "hello"            # 填写输入框
 bb-browser eval "document.title"      # 执行 JS
 bb-browser fetch URL --json           # 带登录态的 fetch
