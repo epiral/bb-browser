@@ -4,8 +4,7 @@
   "bump-patch-for-minor-pre-major": true,
   "packages": {
     ".": {
-      "release-type": "node",
-      "release-as": "0.11.1"
+      "release-type": "node"
     }
   }
 }

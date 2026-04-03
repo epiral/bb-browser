@@ -41,16 +41,6 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Package extension
-        run: |
-          cd extension
-          zip -r "../bb-browser-extension-${{ inputs.tag_name }}.zip" .
-
-      - name: Upload extension asset
-        run: gh release upload "${{ inputs.tag_name }}" "bb-browser-extension-${{ inputs.tag_name }}.zip" --clobber
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Publish to npm
         run: pnpm publish --no-git-checks
         env:
