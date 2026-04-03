@@ -45,12 +45,37 @@ async function isDaemonRunning(): Promise<boolean> {
 
 async function ensureDaemon(): Promise<void> {
   if (await isDaemonRunning()) return;
-  const child = spawn(process.execPath, [getDaemonPath()], {
+
+  // Discover CDP port first (auto-launches Chrome if needed)
+  let cdpArgs: string[] = [];
+  try {
+    const cliPath = getCliPath();
+    await new Promise<string>((resolve, reject) => {
+      execFile(process.execPath, [cliPath, "daemon", "status", "--json"], { timeout: 15000 }, (err, stdout) => {
+        if (err) reject(err); else resolve(stdout);
+      });
+    });
+    // If CLI daemon status succeeded, daemon is already running
+    if (await isDaemonRunning()) return;
+  } catch {
+    // CLI failed — daemon not running, try spawning with CDP discovery
+    // Read managed port file as fallback
+    const { readFile } = await import("node:fs/promises");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    try {
+      const portFile = path.join(os.default.homedir(), ".bb-browser", "browser", "cdp-port");
+      const port = (await readFile(portFile, "utf8")).trim();
+      if (port) cdpArgs = ["--cdp-port", port];
+    } catch {}
+  }
+
+  const child = spawn(process.execPath, [getDaemonPath(), ...cdpArgs], {
     detached: true, stdio: "ignore", env: { ...process.env },
   });
   child.unref();
-  // wait up to 5s
-  for (let i = 0; i < 25; i++) {
+  // wait up to 10s
+  for (let i = 0; i < 50; i++) {
     await new Promise(r => setTimeout(r, 200));
     if (await isDaemonRunning()) return;
   }

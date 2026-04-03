@@ -24,7 +24,7 @@ import { TabStateManager } from "./tab-state.js";
 // Constants
 // ---------------------------------------------------------------------------
 
-const DAEMON_DIR = path.join(os.homedir(), ".bb-browser");
+const DAEMON_DIR = process.env.BB_BROWSER_HOME || path.join(os.homedir(), ".bb-browser");
 const DAEMON_JSON = path.join(DAEMON_DIR, "daemon.json");
 const DEFAULT_CDP_PORT = 19825;
 
@@ -160,7 +160,7 @@ async function discoverCdpPort(host: string, port: number): Promise<{ host: stri
   } catch {}
 
   // Try reading managed browser port file
-  const managedPortFile = path.join(os.homedir(), ".bb-browser", "browser", "cdp-port");
+  const managedPortFile = path.join(DAEMON_DIR, "browser", "cdp-port");
   try {
     const rawPort = readFileSync(managedPortFile, "utf8").trim();
     const managedPort = parseInt(rawPort, 10);
