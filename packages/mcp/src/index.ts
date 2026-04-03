@@ -50,7 +50,7 @@ async function ensureDaemon(): Promise<void> {
   let cdpArgs: string[] = [];
   try {
     const cliPath = getCliPath();
-    const result = await new Promise<string>((resolve, reject) => {
+    await new Promise<string>((resolve, reject) => {
       execFile(process.execPath, [cliPath, "daemon", "status", "--json"], { timeout: 15000 }, (err, stdout) => {
         if (err) reject(err); else resolve(stdout);
       });
