@@ -135,11 +135,15 @@ export class HttpServer {
               setTimeout(() => reject(new Error("CDP connection timeout")), COMMAND_TIMEOUT),
             ),
           ]);
-        } catch (error) {
+        } catch {
+          const cdpTarget = `${this.cdp.host}:${this.cdp.port}`;
+          const reason = this.cdp.lastError || "unknown";
           this.sendJson(res, 503, {
             id: request.id,
             success: false,
-            error: error instanceof Error ? error.message : "CDP not ready",
+            error: `Chrome not connected (CDP at ${cdpTarget})`,
+            reason,
+            hint: "Make sure Chrome is running. Try: bb-browser daemon shutdown && bb-browser tab list",
           });
           return;
         }

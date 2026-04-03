@@ -96,6 +96,9 @@ export class CdpConnection {
   private connectionPromise: Promise<void> | null = null;
   private _connected = false;
 
+  /** Last connection error (for diagnostics in 503 responses). */
+  lastError: string | null = null;
+
   /** Resolvers for commands queued before CDP is ready. */
   private readyWaiters: Array<{ resolve: () => void; reject: (err: Error) => void }> = [];
 
@@ -124,6 +127,15 @@ export class CdpConnection {
     this.connectionPromise = this.doConnect();
     try {
       await this.connectionPromise;
+      this.lastError = null;
+    } catch (err) {
+      this.lastError = err instanceof Error ? err.message : String(err);
+      const connErr = new Error(this.lastError);
+      for (const waiter of this.readyWaiters) {
+        waiter.reject(connErr);
+      }
+      this.readyWaiters = [];
+      throw err;
     } finally {
       this.connectionPromise = null;
     }
@@ -164,6 +176,7 @@ export class CdpConnection {
   /** Wait until CDP connection is established (for two-phase startup). */
   waitUntilReady(): Promise<void> {
     if (this._connected) return Promise.resolve();
+    if (this.lastError) return Promise.reject(new Error(this.lastError));
     return new Promise<void>((resolve, reject) => {
       this.readyWaiters.push({ resolve, reject });
     });
@@ -284,10 +297,17 @@ export class CdpConnection {
     ws.on("close", () => {
       this._connected = false;
       this.socket = null;
+      this.lastError = "CDP WebSocket closed unexpectedly";
       for (const p of this.pending.values()) {
         p.reject(new Error("CDP connection closed"));
       }
       this.pending.clear();
+
+      const closeErr = new Error(this.lastError);
+      for (const waiter of this.readyWaiters) {
+        waiter.reject(closeErr);
+      }
+      this.readyWaiters = [];
     });
 
     ws.on("error", () => {});
