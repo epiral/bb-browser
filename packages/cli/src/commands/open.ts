@@ -31,7 +31,10 @@ export async function openCommand(
 
   // 补全 URL 协议
   let normalizedUrl = url;
-  if (!url.startsWith("http://") && !url.startsWith("https://")) {
+  // 支持浏览器内部协议：chrome://, about:, edge://, brave:// 等
+  const browserProtocols = ["chrome://", "about:", "edge://", "brave://", "opera://", "vivaldi://"];
+  const isBrowserInternalUrl = browserProtocols.some((protocol) => url.startsWith(protocol));
+  if (!isBrowserInternalUrl && !url.startsWith("http://") && !url.startsWith("https://")) {
     normalizedUrl = "https://" + url;
   }
 
