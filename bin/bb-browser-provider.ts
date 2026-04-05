@@ -1,5 +1,3 @@
-#!/usr/bin/env bun
-
 /**
  * bb-browser-provider — Edge Clip provider for Pinix Hub
  *
