@@ -21,8 +21,8 @@ importers:
         specifier: ^1.12.1
         version: 1.27.1(zod@3.25.76)
       '@pinixai/hub-client':
-        specifier: ^0.1.1
-        version: 0.1.1(typescript@5.9.3)
+        specifier: ^0.1.2
+        version: 0.1.2(typescript@5.9.3)
       ajv:
         specifier: ^8.17.1
         version: 8.18.0
@@ -405,8 +405,8 @@ packages:
       '@cfworker/json-schema':
         optional: true
 
-  '@pinixai/hub-client@0.1.1':
-    resolution: {integrity: sha512-Zp7o5Yy4Bo64g84Iay4tAzQVXwoF2LVsSd9IJf9rRfXLHsICAci5aazUZudL/DbS+yzq19O06xbgA31xIAXd/Q==}
+  '@pinixai/hub-client@0.1.2':
+    resolution: {integrity: sha512-mdanOlFX3ncgqk9PU7GoAJgXQqQNx8HB04cYenzKb14JJG/18Jc/24BSFoNb3HgsdbPpdOPvxKpDgY7YEzyzQg==}
     peerDependencies:
       typescript: ^5.9.3
 
@@ -1682,7 +1682,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@pinixai/hub-client@0.1.1(typescript@5.9.3)':
+  '@pinixai/hub-client@0.1.2(typescript@5.9.3)':
     dependencies:
       '@bufbuild/protobuf': 2.11.0
       '@connectrpc/connect': 2.1.1(@bufbuild/protobuf@2.11.0)

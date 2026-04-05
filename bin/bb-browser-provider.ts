@@ -21,7 +21,7 @@ import {
   InvokeResultSchema,
   HeartbeatSchema,
   HubErrorSchema,
-} from "@pinixai/hub-client/src/gen/hub_pb";
+} from "@pinixai/hub-client";
 import { COMMANDS, type CommandDef } from "../packages/shared/src/commands.ts";
 import { COMMAND_TIMEOUT, generateId } from "../packages/shared/src/index.ts";
 import type { Request, Response } from "../packages/shared/src/protocol.ts";
