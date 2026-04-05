@@ -5,7 +5,8 @@
   "type": "module",
   "bin": {
     "bb-browser": "./dist/cli.js",
-    "bb-browser-mcp": "./dist/mcp.js"
+    "bb-browser-mcp": "./dist/mcp.js",
+    "bb-browser-provider": "./dist/provider.js"
   },
   "main": "./dist/cli.js",
   "files": [
@@ -55,6 +56,7 @@
     "@bufbuild/protobuf": "^2.11.0",
     "@connectrpc/connect": "^2.1.1",
     "@connectrpc/connect-node": "^2.1.1",
+    "@pinixai/hub-client": "^0.1.1",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
