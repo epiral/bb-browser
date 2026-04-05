@@ -375,7 +375,7 @@ const specialHandlers: Record<string, (cmd: CommandDef) => ToolHandler> = {
     return textResult(resp.data || "Opened new tab");
   },
 
-  close: (cmd) => async (args) => {
+  close: (_cmd) => async (args) => {
     const action = args.tab === undefined ? "close" : "tab_close";
     const { tab, ...rest } = args;
     const request: Record<string, unknown> = { action, ...rest };
@@ -386,7 +386,7 @@ const specialHandlers: Record<string, (cmd: CommandDef) => ToolHandler> = {
     return textResult(resp.data || "Closed tab");
   },
 
-  press: (cmd) => async (args) => {
+  press: (_cmd) => async (args) => {
     const key = args.key as string;
     const parts = key.split("+");
     const modifierNames = new Set(["Control", "Alt", "Shift", "Meta"]);
@@ -406,7 +406,7 @@ const specialHandlers: Record<string, (cmd: CommandDef) => ToolHandler> = {
     return textResult(resp.data || `Pressed ${key}`);
   },
 
-  wait: (cmd) => async (args) => {
+  wait: (_cmd) => async (args) => {
     const ms = args.ms ?? (args as Record<string, unknown>).time ?? 1000;
     const { tab, ...rest } = args;
     const request: Record<string, unknown> = {
