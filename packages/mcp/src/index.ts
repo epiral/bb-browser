@@ -7,7 +7,6 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 
@@ -99,7 +98,7 @@ async function ensureDaemon(): Promise<void> {
   } catch {
     // CLI failed — daemon not running, try spawning with CDP discovery
     try {
-      const portFile = path.join(os.homedir(), ".bb-browser", "browser", "cdp-port");
+      const portFile = path.join(DAEMON_DIR, "browser", "cdp-port");
       const port = (await readFile(portFile, "utf8")).trim();
       if (port) cdpArgs = ["--cdp-port", port];
     } catch {}
