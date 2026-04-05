@@ -22,7 +22,6 @@ export {
 
 export {
   COMMAND_TIMEOUT,
-  DAEMON_BASE_URL,
   DAEMON_HOST,
   DAEMON_PORT,
   SSE_HEARTBEAT_INTERVAL,
@@ -36,3 +35,12 @@ export {
   findCommand,
   getCommandsByCategory,
 } from "./commands.js";
+
+export {
+  type DaemonInfo,
+  DAEMON_DIR,
+  DAEMON_JSON,
+  readDaemonJson,
+  isProcessAlive,
+  httpJson,
+} from "./daemon-client.js";

@@ -730,11 +730,17 @@ export async function dispatchRequest(
 
     case "scroll": {
       const seq = tab.recordAction();
-      const deltaY = request.direction === "up"
-        ? -(request.pixels ?? 300)
-        : (request.pixels ?? 300);
+      const pixels = request.pixels ?? 300;
+      let deltaX = 0;
+      let deltaY = 0;
+      switch (request.direction) {
+        case "up": deltaY = -pixels; break;
+        case "down": deltaY = pixels; break;
+        case "left": deltaX = -pixels; break;
+        case "right": deltaX = pixels; break;
+      }
       await cdp.sessionCommand(target.id, "Input.dispatchMouseEvent", {
-        type: "mouseWheel", x: 0, y: 0, deltaX: 0, deltaY,
+        type: "mouseWheel", x: 0, y: 0, deltaX, deltaY,
       });
       return ok(request.id, { tab: shortId, seq });
     }

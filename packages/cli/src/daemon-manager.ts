@@ -3,30 +3,20 @@
  */
 
 import { spawn } from "node:child_process";
-import { readFile, unlink } from "node:fs/promises";
-import { request as httpRequest } from "node:http";
+import { unlink } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { existsSync } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import type { Request, Response } from "@bb-browser/shared";
-import { COMMAND_TIMEOUT } from "@bb-browser/shared";
+import {
+  COMMAND_TIMEOUT,
+  DAEMON_JSON,
+  type DaemonInfo,
+  readDaemonJson,
+  isProcessAlive,
+  httpJson,
+} from "@bb-browser/shared";
 import { discoverCdpPort } from "./cdp-discovery.js";
-
-// ---------------------------------------------------------------------------
-// Paths & types
-// ---------------------------------------------------------------------------
-
-const DAEMON_DIR = process.env.BB_BROWSER_HOME || path.join(os.homedir(), ".bb-browser");
-const DAEMON_JSON = path.join(DAEMON_DIR, "daemon.json");
-
-interface DaemonInfo {
-  pid: number;
-  host: string;
-  port: number;
-  token: string;
-}
 
 // ---------------------------------------------------------------------------
 // Cached state
@@ -36,100 +26,8 @@ let cachedInfo: DaemonInfo | null = null;
 let daemonReady = false;
 
 // ---------------------------------------------------------------------------
-// PID liveness check
+// daemon.json helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Check whether a process with the given PID is alive.
- * Uses signal 0 which doesn't actually send a signal — it just checks existence.
- */
-export function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Low-level HTTP helpers
-// ---------------------------------------------------------------------------
-
-function httpJson<T>(
-  method: "GET" | "POST",
-  urlPath: string,
-  info: { host: string; port: number; token: string },
-  body?: unknown,
-  timeout = 5000,
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const payload = body !== undefined ? JSON.stringify(body) : undefined;
-    const req = httpRequest(
-      {
-        hostname: info.host,
-        port: info.port,
-        path: urlPath,
-        method,
-        headers: {
-          Authorization: `Bearer ${info.token}`,
-          ...(payload
-            ? {
-                "Content-Type": "application/json",
-                "Content-Length": Buffer.byteLength(payload),
-              }
-            : {}),
-        },
-        timeout,
-      },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on("data", (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
-        res.on("end", () => {
-          const raw = Buffer.concat(chunks).toString("utf8");
-          if ((res.statusCode ?? 500) >= 400) {
-            reject(new Error(`Daemon HTTP ${res.statusCode}: ${raw}`));
-            return;
-          }
-          try {
-            resolve(JSON.parse(raw) as T);
-          } catch {
-            reject(new Error(`Invalid JSON from daemon: ${raw}`));
-          }
-        });
-      },
-    );
-    req.on("error", reject);
-    req.on("timeout", () => {
-      req.destroy();
-      reject(new Error("Daemon request timed out"));
-    });
-    if (payload) req.write(payload);
-    req.end();
-  });
-}
-
-// ---------------------------------------------------------------------------
-// daemon.json
-// ---------------------------------------------------------------------------
-
-async function readDaemonJson(): Promise<DaemonInfo | null> {
-  try {
-    const raw = await readFile(DAEMON_JSON, "utf8");
-    const info = JSON.parse(raw) as DaemonInfo;
-    if (
-      typeof info.pid === "number" &&
-      typeof info.host === "string" &&
-      typeof info.port === "number" &&
-      typeof info.token === "string"
-    ) {
-      return info;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
 
 async function deleteDaemonJson(): Promise<void> {
   try {
