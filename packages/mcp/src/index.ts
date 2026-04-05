@@ -407,22 +407,30 @@ const specialHandlers: Record<string, (cmd: CommandDef) => ToolHandler> = {
   },
 
   wait: (cmd) => async (args) => {
+    const ms = args.ms ?? (args as Record<string, unknown>).time ?? 1000;
     const { tab, ...rest } = args;
     const request: Record<string, unknown> = {
       action: "wait",
       waitType: "time",
       ...rest,
+      ms,
     };
+    // Remove legacy arg name if present
+    delete (request as Record<string, unknown>).time;
     if (tab !== undefined) request.tabId = tab;
     const resp = await runCommand(request as Omit<Request, "id"> & Record<string, unknown>);
     if (!resp.success) return responseError(resp);
-    return textResult(resp.data || `Waited ${args.ms}ms`);
+    return textResult(resp.data || `Waited ${ms}ms`);
   },
 
   network: (cmd) => async (args) => {
-    const resp = await runCommand(buildRequest(cmd, args));
+    // Backward compat: accept old "command" arg name
+    const networkCommand = args.networkCommand ?? (args as Record<string, unknown>).command ?? "requests";
+    const mappedArgs = { ...args, networkCommand };
+    delete (mappedArgs as Record<string, unknown>).command;
+    const resp = await runCommand(buildRequest(cmd, mappedArgs));
     if (!resp.success) return responseError(resp);
-    const nc = args.networkCommand as string | undefined;
+    const nc = networkCommand as string | undefined;
     if (nc === "requests" || nc === undefined) {
       const data = resp.data as Record<string, unknown>;
       return textResult({
@@ -434,9 +442,13 @@ const specialHandlers: Record<string, (cmd: CommandDef) => ToolHandler> = {
   },
 
   console: (cmd) => async (args) => {
-    const resp = await runCommand(buildRequest(cmd, args));
+    // Backward compat: accept old "command" arg name
+    const consoleCommand = args.consoleCommand ?? (args as Record<string, unknown>).command ?? "get";
+    const mappedArgs = { ...args, consoleCommand };
+    delete (mappedArgs as Record<string, unknown>).command;
+    const resp = await runCommand(buildRequest(cmd, mappedArgs));
     if (!resp.success) return responseError(resp);
-    const cc = args.consoleCommand as string | undefined;
+    const cc = consoleCommand as string | undefined;
     if (cc === "get" || cc === undefined) {
       const data = resp.data as Record<string, unknown>;
       return textResult({
@@ -448,9 +460,13 @@ const specialHandlers: Record<string, (cmd: CommandDef) => ToolHandler> = {
   },
 
   errors: (cmd) => async (args) => {
-    const resp = await runCommand(buildRequest(cmd, args));
+    // Backward compat: accept old "command" arg name
+    const errorsCommand = args.errorsCommand ?? (args as Record<string, unknown>).command ?? "get";
+    const mappedArgs = { ...args, errorsCommand };
+    delete (mappedArgs as Record<string, unknown>).command;
+    const resp = await runCommand(buildRequest(cmd, mappedArgs));
     if (!resp.success) return responseError(resp);
-    const ec = args.errorsCommand as string | undefined;
+    const ec = errorsCommand as string | undefined;
     if (ec === "get" || ec === undefined) {
       const data = resp.data as Record<string, unknown>;
       return textResult({

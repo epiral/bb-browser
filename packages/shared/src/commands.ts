@@ -319,7 +319,7 @@ export const COMMANDS: CommandDef[] = [
     args: z.object({
       networkCommand: z.enum(["requests", "route", "unroute", "clear"]).default("requests").describe("Network sub-command"),
       filter: z.string().optional().describe("URL substring filter for requests"),
-      since: z.string().optional().describe("Incremental query: 'last_action' for events since last operation, or a seq number"),
+      since: z.union([z.literal("last_action"), z.number()]).optional().describe("Incremental query: 'last_action' for events since last operation, or a seq number"),
       method: z.string().optional().describe("Filter by HTTP method (GET, POST, etc.)"),
       status: z.string().optional().describe("Filter by status: '4xx', '5xx', or exact code like '200'"),
       limit: z.number().optional().describe("Max number of results to return"),
@@ -335,7 +335,7 @@ export const COMMANDS: CommandDef[] = [
     args: z.object({
       consoleCommand: z.enum(["get", "clear"]).default("get").describe("Console sub-command"),
       filter: z.string().optional().describe("Filter console messages by text substring"),
-      since: z.string().optional().describe("Incremental query: 'last_action' for events since last operation, or a seq number"),
+      since: z.union([z.literal("last_action"), z.number()]).optional().describe("Incremental query: 'last_action' for events since last operation, or a seq number"),
       limit: z.number().optional().describe("Max number of results to return"),
       tab: z.string().optional().describe("Tab short ID"),
     }),
@@ -348,7 +348,7 @@ export const COMMANDS: CommandDef[] = [
     args: z.object({
       errorsCommand: z.enum(["get", "clear"]).default("get").describe("Errors sub-command"),
       filter: z.string().optional().describe("Filter errors by text substring"),
-      since: z.string().optional().describe("Incremental query: 'last_action' for events since last operation, or a seq number"),
+      since: z.union([z.literal("last_action"), z.number()]).optional().describe("Incremental query: 'last_action' for events since last operation, or a seq number"),
       limit: z.number().optional().describe("Max number of results to return"),
       tab: z.string().optional().describe("Tab short ID"),
     }),
@@ -372,7 +372,6 @@ export const COMMANDS: CommandDef[] = [
       historyCommand: z.enum(["search", "domains"]).describe("History sub-command"),
       query: z.string().optional().describe("Search query string (used with 'search' sub-command)"),
       days: z.number().default(30).describe("Number of days to look back"),
-      tab: z.string().optional().describe("Tab short ID"),
     }),
   },
 

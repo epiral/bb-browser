@@ -246,13 +246,18 @@ function convertZodType(schema: z.ZodTypeAny): Record<string, unknown> {
   const def = (schema as any)._def;
   const typeName: string = def?.typeName ?? "";
 
-  // Unwrap wrappers
+  // Unwrap wrappers (preserve outer description)
   if (typeName === "ZodOptional" || typeName === "ZodNullable") {
-    return convertZodType(def.innerType);
+    const outerDesc = def.description;
+    const inner = convertZodType(def.innerType);
+    if (outerDesc && !inner.description) inner.description = outerDesc;
+    return inner;
   }
   if (typeName === "ZodDefault") {
+    const outerDesc = def.description;
     const inner = convertZodType(def.innerType);
     inner.default = def.defaultValue();
+    if (outerDesc && !inner.description) inner.description = outerDesc;
     return inner;
   }
   if (typeName === "ZodEffects") {
@@ -734,7 +739,7 @@ function maybeUnref(timer: ReturnType<typeof setTimeout> | ReturnType<typeof set
  *   - `action` is set from the CommandDef
  *   - All other fields are passed through directly
  */
-async function executeViaDeamon(cmdName: string, input: InputObject): Promise<unknown> {
+async function executeViaDaemon(cmdName: string, input: InputObject): Promise<unknown> {
   const cmd = COMMANDS.find((c) => c.name === cmdName);
   if (!cmd) {
     throw new PinixInvokeError("not_found", `Unknown command: ${cmdName}`);
@@ -1004,7 +1009,7 @@ class PinixBridge {
       }
 
       const input = decodeInvokeInput(message.input);
-      const output = await executeViaDeamon(command, input);
+      const output = await executeViaDaemon(command, input);
       this.send(inputQueue, createInvokeResultMessage(requestId, encodeInvokeOutput(output), undefined));
     } catch (error) {
       this.send(inputQueue, createInvokeResultMessage(requestId, undefined, toHubError(error)));
