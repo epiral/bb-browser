@@ -746,10 +746,18 @@ function maybeUnref(timer: ReturnType<typeof setTimeout> | ReturnType<typeof set
 
 function runSiteCli(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    const cliPath = new URL("../packages/cli/src/index.ts", import.meta.url).pathname;
-    execFile("bun", ["run", cliPath, "site", ...args], { timeout: 30000, encoding: "utf8" }, (err, stdout, stderr) => {
-      if (err) reject(new Error(stderr || err.message));
-      else resolve(stdout.trim());
+    // Use the installed bb-browser CLI binary, not source (which needs tsup define)
+    execFile("bb-browser", ["site", ...args], { timeout: 30000, encoding: "utf8" }, (err, stdout, stderr) => {
+      if (err) {
+        // Fallback: try node with dist/cli.js
+        const distPath = new URL("../dist/cli.js", import.meta.url).pathname;
+        execFile("node", [distPath, "site", ...args], { timeout: 30000, encoding: "utf8" }, (err2, stdout2, stderr2) => {
+          if (err2) reject(new Error(stderr2 || stderr || err2.message));
+          else resolve(stdout2.trim());
+        });
+      } else {
+        resolve(stdout.trim());
+      }
     });
   });
 }
