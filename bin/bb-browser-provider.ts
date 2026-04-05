@@ -22,7 +22,7 @@ import {
   HeartbeatSchema,
   HubErrorSchema,
 } from "@pinixai/hub-client";
-import { COMMANDS, type CommandDef } from "../packages/shared/src/commands.ts";
+import { COMMANDS } from "../packages/shared/src/commands.ts";
 import { COMMAND_TIMEOUT, generateId } from "../packages/shared/src/index.ts";
 import type { Request, Response } from "../packages/shared/src/protocol.ts";
 import {
@@ -503,8 +503,9 @@ class HubBridge {
       const callOpts = this.getCallOptions(ac.signal);
       const stream = client.providerStream(queue, callOpts);
 
-      // Send register message
-      const { browserClip, siteClips } = buildClipRegistrations();
+      // Send register message (re-scan adapters on each reconnect)
+      const { browserClip, siteClips, platformClips } = buildClipRegistrations();
+      this.platformClipAliases = new Set(platformClips.map((p) => p.alias));
       queue.push(create(ProviderMessageSchema, {
         payload: {
           case: "register",

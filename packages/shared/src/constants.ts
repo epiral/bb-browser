@@ -8,9 +8,6 @@ export const DAEMON_PORT = 19824;
 /** Daemon 主机地址 */
 export const DAEMON_HOST = "127.0.0.1";
 
-/** Daemon 基础 URL */
-export const DAEMON_BASE_URL = `http://${DAEMON_HOST}:${DAEMON_PORT}`;
-
 /** SSE 心跳间隔（毫秒） - 15秒确保 MV3 Service Worker 不休眠 */
 export const SSE_HEARTBEAT_INTERVAL = 15000; // 15 秒
 
