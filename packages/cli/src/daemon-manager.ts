@@ -12,13 +12,12 @@ import os from "node:os";
 import path from "node:path";
 import type { Request, Response } from "@bb-browser/shared";
 import { COMMAND_TIMEOUT } from "@bb-browser/shared";
-import { discoverCdpPort } from "./cdp-discovery.js";
 
 // ---------------------------------------------------------------------------
 // Paths & types
 // ---------------------------------------------------------------------------
 
-const DAEMON_DIR = process.env.BB_BROWSER_HOME || path.join(os.homedir(), ".bb-browser");
+const DAEMON_DIR = path.join(os.homedir(), ".bb-browser");
 const DAEMON_JSON = path.join(DAEMON_DIR, "daemon.json");
 
 interface DaemonInfo {
@@ -192,28 +191,16 @@ export async function ensureDaemon(): Promise<void> {
     }
   }
 
-  // Discover CDP port (auto-launches Chrome if needed)
-  const cdpInfo = await discoverCdpPort();
-  if (!cdpInfo) {
-    throw new Error(
-      "bb-browser: Cannot find a Chromium-based browser.\n\n" +
-      "Please do one of the following:\n" +
-      "  1. Install Google Chrome, Edge, or Brave\n" +
-      "  2. Start Chrome with: google-chrome --remote-debugging-port=19825\n" +
-      "  3. Set BB_BROWSER_CDP_URL=http://host:port",
-    );
-  }
-
-  // Spawn daemon process with discovered CDP endpoint
+  // Spawn daemon process
   const daemonPath = getDaemonPath();
-  const child = spawn(process.execPath, [daemonPath, "--cdp-host", cdpInfo.host, "--cdp-port", String(cdpInfo.port)], {
+  const child = spawn(process.execPath, [daemonPath], {
     detached: true,
     stdio: "ignore",
   });
   child.unref();
 
-  // Wait for daemon to become healthy (up to 10 seconds — includes Chrome launch time)
-  const deadline = Date.now() + 10000;
+  // Wait for daemon to become healthy (up to 5 seconds)
+  const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 200));
     // Re-read daemon.json each iteration (daemon writes it on startup)
@@ -232,9 +219,7 @@ export async function ensureDaemon(): Promise<void> {
   }
 
   throw new Error(
-    "bb-browser: Daemon did not start in time.\n\n" +
-    "Chrome CDP is reachable, but the daemon process failed to initialize.\n" +
-    "Try: bb-browser daemon status",
+    "bb-browser: Daemon did not start in time.\n\nMake sure Chrome is installed, then try again.",
   );
 }
 

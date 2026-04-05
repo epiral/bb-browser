@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "bb-browser": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "bb-browser"
+      ]
+    }
+  }
+}
