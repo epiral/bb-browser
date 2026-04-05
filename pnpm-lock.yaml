@@ -140,6 +140,10 @@ importers:
         version: 5.9.3
 
   packages/shared:
+    dependencies:
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

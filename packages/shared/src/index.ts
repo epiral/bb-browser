@@ -31,7 +31,6 @@ export {
 } from "./constants.js";
 
 export {
-  type CommandArg,
   type CommandDef,
   COMMANDS,
   findCommand,
