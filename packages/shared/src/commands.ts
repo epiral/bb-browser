@@ -627,11 +627,98 @@ export const COMMANDS: CommandDef[] = [
         required: true,
         enum: ["search", "domains"],
       },
+      query: {
+        type: "string",
+        description: "Search query string (used with 'search' sub-command)",
+      },
+      days: {
+        type: "number",
+        description: "Number of days to look back",
+        default: 30,
+      },
       tab: {
         type: "string",
         description: "Tab short ID",
       },
     },
+  },
+
+  // ---------------------------------------------------------------------------
+  // Site
+  // ---------------------------------------------------------------------------
+  {
+    name: "site_list",
+    action: "site_list",
+    description: "List all available site adapters",
+    category: "site",
+    args: {},
+  },
+  {
+    name: "site_search",
+    action: "site_search",
+    description: "Search site adapters by name, description, or domain",
+    category: "site",
+    args: {
+      query: {
+        type: "string",
+        description: "Search query",
+        required: true,
+      },
+    },
+  },
+  {
+    name: "site_info",
+    action: "site_info",
+    description: "Show detailed metadata for a site adapter",
+    category: "site",
+    args: {
+      name: {
+        type: "string",
+        description: "Adapter name (e.g. reddit/thread)",
+        required: true,
+      },
+    },
+  },
+  {
+    name: "site_recommend",
+    action: "site_recommend",
+    description: "Recommend site adapters based on browsing history",
+    category: "site",
+    args: {
+      days: {
+        type: "number",
+        description: "Number of days of history to analyze",
+        default: 30,
+      },
+    },
+  },
+  {
+    name: "site_run",
+    action: "site_run",
+    description: "Run a site adapter to extract structured data from a website",
+    category: "site",
+    args: {
+      name: {
+        type: "string",
+        description: "Adapter name (e.g. reddit/thread, twitter/user)",
+        required: true,
+      },
+      args: {
+        type: "string",
+        description: "Arguments to pass to the adapter (space-separated or --flag value)",
+      },
+      tab: {
+        type: "string",
+        description: "Tab short ID (auto-detected from adapter domain if omitted)",
+      },
+    },
+  },
+  {
+    name: "site_update",
+    action: "site_update",
+    description: "Update community site adapter library (git clone/pull)",
+    category: "site",
+    args: {},
   },
 ];
 
