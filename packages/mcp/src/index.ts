@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { DAEMON_BASE_URL, COMMAND_TIMEOUT, generateId } from "@bb-browser/shared";
-import type { Request, Response } from "@bb-browser/shared";
+import { DAEMON_BASE_URL, COMMAND_TIMEOUT, COMMANDS, generateId } from "@bb-browser/shared";
+import type { CommandDef, Request, Response } from "@bb-browser/shared";
 import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -19,6 +19,10 @@ const CHROME_NOT_CONNECTED_HINT = [
 
 const sessionOpenedTabs = new Set<string>();
 
+// ---------------------------------------------------------------------------
+// Path helpers
+// ---------------------------------------------------------------------------
+
 function getDaemonPath(): string {
   const currentDir = dirname(fileURLToPath(import.meta.url));
   const sameDirPath = resolve(currentDir, "daemon.js");
@@ -32,6 +36,10 @@ function getCliPath(): string {
   if (existsSync(sameDirPath)) return sameDirPath;
   return resolve(currentDir, "../../cli/dist/index.js");
 }
+
+// ---------------------------------------------------------------------------
+// Daemon lifecycle
+// ---------------------------------------------------------------------------
 
 async function isDaemonRunning(): Promise<boolean> {
   try {
@@ -81,6 +89,10 @@ async function ensureDaemon(): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Command transport
+// ---------------------------------------------------------------------------
+
 async function sendCommand(request: Request): Promise<Response> {
   await ensureDaemon();
   const controller = new AbortController();
@@ -103,6 +115,10 @@ async function sendCommand(request: Request): Promise<Response> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Result helpers
+// ---------------------------------------------------------------------------
+
 function errorResult(message: string) {
   return {
     content: [{ type: "text" as const, text: `Error: ${message}` }],
@@ -122,6 +138,10 @@ function textResult(value: unknown) {
 async function runCommand(request: Omit<Request, "id"> & Record<string, unknown>) {
   return sendCommand({ id: generateId(), ...request } as Request);
 }
+
+// ---------------------------------------------------------------------------
+// Session tab tracking
+// ---------------------------------------------------------------------------
 
 function normalizeTabId(tabId: string | number | undefined): string | undefined {
   if (typeof tabId === "string" && tabId) {
@@ -151,6 +171,10 @@ function rememberSessionTabFromResponse(data: Response["data"]): void {
   if (!data) return;
   rememberSessionTab((data as Response["data"] & { tabId?: string | number }).tabId);
 }
+
+// ---------------------------------------------------------------------------
+// Site CLI helpers
+// ---------------------------------------------------------------------------
 
 function tryParseJson<T>(raw: string): T | null {
   const trimmed = raw.trim();
@@ -238,6 +262,10 @@ async function runSiteCli(args: string[]): Promise<unknown> {
   return parsed ?? result.stdout.trim();
 }
 
+// ---------------------------------------------------------------------------
+// MCP Server
+// ---------------------------------------------------------------------------
+
 const server = new McpServer(
   { name: "bb-browser", version: __BB_BROWSER_VERSION__ },
   { instructions: `bb-browser lets you control the user's real Chrome browser via CDP (Chrome DevTools Protocol).
@@ -270,262 +298,37 @@ Site adapters (pre-built commands for popular sites):
 To create a new site adapter, run: bb-browser guide` },
 );
 
-server.tool(
-  "browser_snapshot",
-  "Get accessibility tree snapshot of the current page",
-  {
-    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
-    interactive: z.boolean().optional().describe("Only show interactive elements"),
-  },
-  async ({ tab, interactive }) => {
-    const resp = await runCommand({ action: "snapshot", interactive, tabId: tab });
+// ---------------------------------------------------------------------------
+// Build args→request mapping: remap "tab" → "tabId" for daemon protocol
+// ---------------------------------------------------------------------------
+
+function buildRequest(cmd: CommandDef, args: Record<string, unknown>): Omit<Request, "id"> & Record<string, unknown> {
+  const { tab, ...rest } = args;
+  const request: Record<string, unknown> = { action: cmd.action, ...rest };
+  if (tab !== undefined) {
+    request.tabId = tab;
+  }
+  return request as Omit<Request, "id"> & Record<string, unknown>;
+}
+
+// ---------------------------------------------------------------------------
+// Commands that need special handling — keyed by command name
+// ---------------------------------------------------------------------------
+
+type ToolHandler = (args: Record<string, unknown>) => Promise<{
+  content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>;
+  isError?: boolean;
+}>;
+
+const specialHandlers: Record<string, (cmd: CommandDef) => ToolHandler> = {
+  snapshot: (cmd) => async (args) => {
+    const resp = await runCommand(buildRequest(cmd, args));
     if (!resp.success) return responseError(resp);
     return textResult(resp.data?.snapshotData?.snapshot || "(empty)");
-  }
-);
-
-server.tool(
-  "browser_click",
-  "Click an element by ref",
-  {
-    ref: z.string().describe("Element ref from snapshot"),
-    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
   },
-  async ({ ref, tab }) => {
-    const resp = await runCommand({ action: "click", ref, tabId: tab });
-    if (!resp.success) return responseError(resp);
-    return textResult(resp.data || "Clicked");
-  }
-);
 
-server.tool(
-  "browser_fill",
-  "Fill text into an input",
-  {
-    ref: z.string().describe("Element ref from snapshot"),
-    text: z.string().describe("Text to fill"),
-    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
-  },
-  async ({ ref, text, tab }) => {
-    const resp = await runCommand({ action: "fill", ref, text, tabId: tab });
-    if (!resp.success) return responseError(resp);
-    return textResult(resp.data || "Filled");
-  }
-);
-
-server.tool(
-  "browser_type",
-  "Type text into an input without clearing",
-  {
-    ref: z.string().describe("Element ref from snapshot"),
-    text: z.string().describe("Text to type"),
-    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
-  },
-  async ({ ref, text, tab }) => {
-    const resp = await runCommand({ action: "type", ref, text, tabId: tab });
-    if (!resp.success) return responseError(resp);
-    return textResult(resp.data || "Typed");
-  }
-);
-
-server.tool(
-  "browser_open",
-  "Navigate to a URL",
-  {
-    url: z.string().describe("URL to open"),
-    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
-  },
-  async ({ url, tab }) => {
-    const resp = await runCommand({ action: "open", url, tabId: tab });
-    if (!resp.success) return responseError(resp);
-    if (tab === undefined) {
-      rememberSessionTabFromResponse(resp.data);
-    }
-    return textResult(resp.data || `Opened ${url}`);
-  }
-);
-
-server.tool(
-  "browser_tab_list",
-  "List all tabs",
-  {},
-  async () => {
-    const resp = await runCommand({ action: "tab_list" });
-    if (!resp.success) return responseError(resp);
-    return textResult(resp.data?.tabs || []);
-  }
-);
-
-server.tool(
-  "browser_tab_new",
-  "Open a new tab",
-  {
-    url: z.string().optional().describe("Optional URL to open"),
-  },
-  async ({ url }) => {
-    const resp = await runCommand({ action: "tab_new", url });
-    if (!resp.success) return responseError(resp);
-    rememberSessionTabFromResponse(resp.data);
-    return textResult(resp.data || "Opened new tab");
-  }
-);
-
-server.tool(
-  "browser_press",
-  "Press a keyboard key",
-  {
-    key: z.string().describe("Key name to press, e.g. Enter or Control+a"),
-    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
-  },
-  async ({ key, tab }) => {
-    const parts = key.split("+");
-    const modifierNames = new Set(["Control", "Alt", "Shift", "Meta"]);
-    const modifiers = parts.filter((part) => modifierNames.has(part));
-    const mainKey = parts.find((part) => !modifierNames.has(part));
-    if (!mainKey) return errorResult("Invalid key format");
-    const resp = await runCommand({ action: "press", key: mainKey, modifiers, tabId: tab });
-    if (!resp.success) return responseError(resp);
-    return textResult(resp.data || `Pressed ${key}`);
-  }
-);
-
-server.tool(
-  "browser_scroll",
-  "Scroll the page",
-  {
-    direction: z.enum(["up", "down", "left", "right"]).describe("Scroll direction"),
-    pixels: z.number().optional().default(500).describe("Scroll distance in pixels"),
-    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
-  },
-  async ({ direction, pixels, tab }) => {
-    const resp = await runCommand({ action: "scroll", direction, pixels, tabId: tab });
-    if (!resp.success) return responseError(resp);
-    return textResult(resp.data || `Scrolled ${direction} ${pixels}px`);
-  }
-);
-
-server.tool(
-  "browser_eval",
-  "Execute JavaScript in page context",
-  {
-    script: z.string().describe("JavaScript source to execute"),
-    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
-  },
-  async ({ script, tab }) => {
-    const resp = await runCommand({ action: "eval", script, tabId: tab });
-    if (!resp.success) return responseError(resp);
-    return textResult(resp.data?.result ?? null);
-  }
-);
-
-server.tool(
-  "browser_network",
-  "Inspect or clear network activity",
-  {
-    command: z.enum(["requests", "clear"]).describe("Network command"),
-    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
-    filter: z.string().optional().describe("URL substring filter"),
-    since: z.union([z.literal("last_action"), z.number()]).optional()
-      .describe("Incremental query: 'last_action' for events since last operation, or seq number"),
-    method: z.string().optional().describe("Filter by HTTP method (GET, POST, etc.)"),
-    status: z.string().optional().describe("Filter by status: '4xx', '5xx', or exact code like '200'"),
-    limit: z.number().optional().describe("Max number of results to return"),
-    withBody: z.boolean().optional().describe("Include request and response bodies"),
-  },
-  async ({ command, tab, filter, since, method, status, limit, withBody }) => {
-    const resp = await runCommand({
-      action: "network",
-      networkCommand: command,
-      filter,
-      since,
-      method,
-      status,
-      limit,
-      withBody,
-      tabId: tab,
-    });
-    if (!resp.success) return responseError(resp);
-    if (command === "requests") {
-      const data = resp.data as Record<string, unknown>;
-      return textResult({
-        requests: data?.networkRequests || data?.requests || [],
-        cursor: data?.cursor,
-      });
-    }
-    return textResult(resp.data || "Cleared");
-  }
-);
-
-server.tool(
-  "browser_console",
-  "Get or clear console messages",
-  {
-    command: z.enum(["get", "clear"]).describe("Console command"),
-    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
-    since: z.union([z.literal("last_action"), z.number()]).optional()
-      .describe("Incremental query: 'last_action' for events since last operation, or seq number"),
-    filter: z.string().optional().describe("Filter console messages by text substring"),
-    limit: z.number().optional().describe("Max number of results to return"),
-  },
-  async ({ command, tab, since, filter, limit }) => {
-    const resp = await runCommand({
-      action: "console",
-      consoleCommand: command,
-      filter,
-      since,
-      limit,
-      tabId: tab,
-    });
-    if (!resp.success) return responseError(resp);
-    if (command === "get") {
-      const data = resp.data as Record<string, unknown>;
-      return textResult({
-        messages: data?.consoleMessages || data?.messages || [],
-        cursor: data?.cursor,
-      });
-    }
-    return textResult(resp.data || "Cleared");
-  }
-);
-
-server.tool(
-  "browser_errors",
-  "Get or clear JavaScript errors",
-  {
-    command: z.enum(["get", "clear"]).describe("Errors command"),
-    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
-    since: z.union([z.literal("last_action"), z.number()]).optional()
-      .describe("Incremental query: 'last_action' for events since last operation, or seq number"),
-    limit: z.number().optional().describe("Max number of results to return"),
-  },
-  async ({ command, tab, since, limit }) => {
-    const resp = await runCommand({
-      action: "errors",
-      errorsCommand: command,
-      since,
-      limit,
-      tabId: tab,
-    });
-    if (!resp.success) return responseError(resp);
-    if (command === "get") {
-      const data = resp.data as Record<string, unknown>;
-      return textResult({
-        errors: data?.jsErrors || data?.errors || [],
-        cursor: data?.cursor,
-      });
-    }
-    return textResult(resp.data || "Cleared");
-  }
-);
-
-server.tool(
-  "browser_screenshot",
-  "Take a screenshot",
-  {
-    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
-  },
-  async ({ tab }) => {
-    const resp = await runCommand({ action: "screenshot", tabId: tab });
+  screenshot: (cmd) => async (args) => {
+    const resp = await runCommand(buildRequest(cmd, args));
     if (!resp.success) return responseError(resp);
     const dataUrl = resp.data?.dataUrl;
     if (typeof dataUrl !== "string") return errorResult("Screenshot data missing");
@@ -536,37 +339,156 @@ server.tool(
         mimeType: "image/png",
       }],
     };
-  }
-);
-
-server.tool(
-  "browser_get",
-  "Get element text or attribute",
-  {
-    attribute: z.enum(["text", "url", "title", "value", "html"]).describe("Attribute to retrieve"),
-    ref: z.string().optional().describe("Optional element ref"),
-    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
   },
-  async ({ attribute, ref, tab }) => {
-    const resp = await runCommand({ action: "get", attribute, ref, tabId: tab });
+
+  eval: (cmd) => async (args) => {
+    const resp = await runCommand(buildRequest(cmd, args));
+    if (!resp.success) return responseError(resp);
+    return textResult(resp.data?.result ?? null);
+  },
+
+  get: (cmd) => async (args) => {
+    const resp = await runCommand(buildRequest(cmd, args));
     if (!resp.success) return responseError(resp);
     return textResult(resp.data?.value ?? "");
-  }
-);
-
-server.tool(
-  "browser_close",
-  "Close the current or specified tab",
-  {
-    tab: z.string().optional().describe("Tab short ID to close"),
   },
-  async ({ tab }) => {
-    const resp = await runCommand({ action: tab === undefined ? "close" : "tab_close", tabId: tab });
+
+  tab_list: (cmd) => async (args) => {
+    const resp = await runCommand(buildRequest(cmd, args));
     if (!resp.success) return responseError(resp);
-    forgetSessionTab(tab);
+    return textResult(resp.data?.tabs || []);
+  },
+
+  open: (cmd) => async (args) => {
+    const resp = await runCommand(buildRequest(cmd, args));
+    if (!resp.success) return responseError(resp);
+    if (args.tab === undefined) {
+      rememberSessionTabFromResponse(resp.data);
+    }
+    return textResult(resp.data || `Opened ${args.url}`);
+  },
+
+  tab_new: (cmd) => async (args) => {
+    const resp = await runCommand(buildRequest(cmd, args));
+    if (!resp.success) return responseError(resp);
+    rememberSessionTabFromResponse(resp.data);
+    return textResult(resp.data || "Opened new tab");
+  },
+
+  close: (cmd) => async (args) => {
+    const action = args.tab === undefined ? "close" : "tab_close";
+    const { tab, ...rest } = args;
+    const request: Record<string, unknown> = { action, ...rest };
+    if (tab !== undefined) request.tabId = tab;
+    const resp = await runCommand(request as Omit<Request, "id"> & Record<string, unknown>);
+    if (!resp.success) return responseError(resp);
+    forgetSessionTab(args.tab as string | undefined);
     return textResult(resp.data || "Closed tab");
+  },
+
+  press: (cmd) => async (args) => {
+    const key = args.key as string;
+    const parts = key.split("+");
+    const modifierNames = new Set(["Control", "Alt", "Shift", "Meta"]);
+    const modifiers = parts.filter((part) => modifierNames.has(part));
+    const mainKey = parts.find((part) => !modifierNames.has(part));
+    if (!mainKey) return errorResult("Invalid key format");
+    const { tab, ...rest } = args;
+    const request: Record<string, unknown> = {
+      action: "press",
+      ...rest,
+      key: mainKey,
+      modifiers,
+    };
+    if (tab !== undefined) request.tabId = tab;
+    const resp = await runCommand(request as Omit<Request, "id"> & Record<string, unknown>);
+    if (!resp.success) return responseError(resp);
+    return textResult(resp.data || `Pressed ${key}`);
+  },
+
+  wait: (cmd) => async (args) => {
+    const { tab, ...rest } = args;
+    const request: Record<string, unknown> = {
+      action: "wait",
+      waitType: "time",
+      ...rest,
+    };
+    if (tab !== undefined) request.tabId = tab;
+    const resp = await runCommand(request as Omit<Request, "id"> & Record<string, unknown>);
+    if (!resp.success) return responseError(resp);
+    return textResult(resp.data || `Waited ${args.ms}ms`);
+  },
+
+  network: (cmd) => async (args) => {
+    const resp = await runCommand(buildRequest(cmd, args));
+    if (!resp.success) return responseError(resp);
+    const nc = args.networkCommand as string | undefined;
+    if (nc === "requests" || nc === undefined) {
+      const data = resp.data as Record<string, unknown>;
+      return textResult({
+        requests: data?.networkRequests || data?.requests || [],
+        cursor: data?.cursor,
+      });
+    }
+    return textResult(resp.data || "Done");
+  },
+
+  console: (cmd) => async (args) => {
+    const resp = await runCommand(buildRequest(cmd, args));
+    if (!resp.success) return responseError(resp);
+    const cc = args.consoleCommand as string | undefined;
+    if (cc === "get" || cc === undefined) {
+      const data = resp.data as Record<string, unknown>;
+      return textResult({
+        messages: data?.consoleMessages || data?.messages || [],
+        cursor: data?.cursor,
+      });
+    }
+    return textResult(resp.data || "Cleared");
+  },
+
+  errors: (cmd) => async (args) => {
+    const resp = await runCommand(buildRequest(cmd, args));
+    if (!resp.success) return responseError(resp);
+    const ec = args.errorsCommand as string | undefined;
+    if (ec === "get" || ec === undefined) {
+      const data = resp.data as Record<string, unknown>;
+      return textResult({
+        errors: data?.jsErrors || data?.errors || [],
+        cursor: data?.cursor,
+      });
+    }
+    return textResult(resp.data || "Cleared");
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Auto-generate tools from COMMANDS registry
+// ---------------------------------------------------------------------------
+
+for (const cmd of COMMANDS) {
+  // Site commands use CLI, not daemon — handled separately below
+  if (cmd.category === "site") continue;
+
+  const toolName = "browser_" + cmd.name;
+  const handler = specialHandlers[cmd.name];
+
+  if (handler) {
+    // Command with special handling
+    server.tool(toolName, cmd.description, cmd.args.shape, handler(cmd));
+  } else {
+    // Standard command: send to daemon and return data
+    server.tool(toolName, cmd.description, cmd.args.shape, async (args: Record<string, unknown>) => {
+      const resp = await runCommand(buildRequest(cmd, args));
+      if (!resp.success) return responseError(resp);
+      return textResult(resp.data || "Done");
+    });
   }
-);
+}
+
+// ---------------------------------------------------------------------------
+// browser_close_all — session-scoped, not in COMMANDS registry
+// ---------------------------------------------------------------------------
 
 server.tool(
   "browser_close_all",
@@ -605,33 +527,9 @@ server.tool(
   }
 );
 
-server.tool(
-  "browser_hover",
-  "Hover over an element",
-  {
-    ref: z.string().describe("Element ref from snapshot"),
-    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
-  },
-  async ({ ref, tab }) => {
-    const resp = await runCommand({ action: "hover", ref, tabId: tab });
-    if (!resp.success) return responseError(resp);
-    return textResult(resp.data || "Hovered");
-  }
-);
-
-server.tool(
-  "browser_wait",
-  "Wait for a number of milliseconds",
-  {
-    time: z.number().describe("Time to wait in milliseconds"),
-    tab: z.string().optional().describe("Tab short ID (from tab list or open command)"),
-  },
-  async ({ time, tab }) => {
-    const resp = await runCommand({ action: "wait", waitType: "time", ms: time, tabId: tab });
-    if (!resp.success) return responseError(resp);
-    return textResult(resp.data || `Waited ${time}ms`);
-  }
-);
+// ---------------------------------------------------------------------------
+// Site tools — route through CLI instead of daemon
+// ---------------------------------------------------------------------------
 
 server.tool(
   "site_list",
@@ -751,6 +649,10 @@ server.tool(
     }
   }
 );
+
+// ---------------------------------------------------------------------------
+// Start
+// ---------------------------------------------------------------------------
 
 export async function startMcpServer() {
   const transport = new StdioServerTransport();
