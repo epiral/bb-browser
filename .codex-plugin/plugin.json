@@ -1,0 +1,24 @@
+{
+  "name": "bb-browser",
+  "version": "0.1.0",
+  "description": "Control Chrome with login state from Codex via MCP",
+  "author": {
+    "name": "epiral",
+    "url": "https://github.com/epiral/bb-browser"
+  },
+  "homepage": "https://github.com/epiral/bb-browser",
+  "repository": "https://github.com/epiral/bb-browser",
+  "keywords": [
+    "mcp",
+    "codex"
+  ],
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "BB Browser",
+    "shortDescription": "Control Chrome with login state from Codex via MCP",
+    "longDescription": "Your browser is the API. CLI + MCP server for AI agents to control Chrome with your login state.",
+    "category": "Productivity",
+    "websiteURL": "https://github.com/epiral/bb-browser"
+  },
+  "skills": "./skills/"
+}

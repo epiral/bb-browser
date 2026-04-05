@@ -29,10 +29,3 @@ export {
   SSE_MAX_RECONNECT_ATTEMPTS,
   SSE_RECONNECT_DELAY,
 } from "./constants.js";
-
-export {
-  type CommandDef,
-  COMMANDS,
-  findCommand,
-  getCommandsByCategory,
-} from "./commands.js";
