@@ -1,11 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { DAEMON_BASE_URL, COMMAND_TIMEOUT, COMMANDS, generateId } from "@bb-browser/shared";
-import type { CommandDef, Request, Response } from "@bb-browser/shared";
+import { COMMAND_TIMEOUT, COMMANDS, generateId, readDaemonJson, DAEMON_DIR } from "@bb-browser/shared";
+import type { CommandDef, Request, Response, DaemonInfo } from "@bb-browser/shared";
 import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import os from "node:os";
+import path from "node:path";
 import { z } from "zod";
 
 declare const __BB_BROWSER_VERSION__: string;
@@ -18,6 +21,26 @@ const CHROME_NOT_CONNECTED_HINT = [
 ].join("\n");
 
 const sessionOpenedTabs = new Set<string>();
+
+let cachedDaemonInfo: DaemonInfo | null = null;
+
+async function getDaemonInfo(): Promise<DaemonInfo | null> {
+  if (cachedDaemonInfo) return cachedDaemonInfo;
+  const info = await readDaemonJson();
+  if (info) cachedDaemonInfo = info;
+  return info;
+}
+
+function daemonBaseUrl(info: DaemonInfo): string {
+  return `http://${info.host}:${info.port}`;
+}
+
+function daemonHeaders(info: DaemonInfo): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${info.token}`,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Path helpers
@@ -42,10 +65,15 @@ function getCliPath(): string {
 // ---------------------------------------------------------------------------
 
 async function isDaemonRunning(): Promise<boolean> {
+  const info = await getDaemonInfo();
+  if (!info) return false;
   try {
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), 2000);
-    const res = await fetch(`${DAEMON_BASE_URL}/status`, { signal: controller.signal });
+    const res = await fetch(`${daemonBaseUrl(info)}/status`, {
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${info.token}` },
+    });
     clearTimeout(t);
     return res.ok;
   } catch { return false; }
@@ -53,6 +81,9 @@ async function isDaemonRunning(): Promise<boolean> {
 
 async function ensureDaemon(): Promise<void> {
   if (await isDaemonRunning()) return;
+
+  // Invalidate cache — daemon is not running so cached info is stale
+  cachedDaemonInfo = null;
 
   // Discover CDP port first (auto-launches Chrome if needed)
   let cdpArgs: string[] = [];
@@ -67,12 +98,8 @@ async function ensureDaemon(): Promise<void> {
     if (await isDaemonRunning()) return;
   } catch {
     // CLI failed — daemon not running, try spawning with CDP discovery
-    // Read managed port file as fallback
-    const { readFile } = await import("node:fs/promises");
-    const os = await import("node:os");
-    const path = await import("node:path");
     try {
-      const portFile = path.join(os.default.homedir(), ".bb-browser", "browser", "cdp-port");
+      const portFile = path.join(os.homedir(), ".bb-browser", "browser", "cdp-port");
       const port = (await readFile(portFile, "utf8")).trim();
       if (port) cdpArgs = ["--cdp-port", port];
     } catch {}
@@ -82,9 +109,10 @@ async function ensureDaemon(): Promise<void> {
     detached: true, stdio: "ignore", env: { ...process.env },
   });
   child.unref();
-  // wait up to 10s
+  // wait up to 10s — re-read daemon.json each iteration (daemon writes it on startup)
   for (let i = 0; i < 50; i++) {
     await new Promise(r => setTimeout(r, 200));
+    cachedDaemonInfo = null; // Force re-read from disk
     if (await isDaemonRunning()) return;
   }
 }
@@ -95,12 +123,16 @@ async function ensureDaemon(): Promise<void> {
 
 async function sendCommand(request: Request): Promise<Response> {
   await ensureDaemon();
+  const info = await getDaemonInfo();
+  if (!info) {
+    return { id: request.id, success: false, error: "No daemon.json found. Is the daemon running?" };
+  }
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), COMMAND_TIMEOUT);
   try {
-    const response = await fetch(`${DAEMON_BASE_URL}/command`, {
+    const response = await fetch(`${daemonBaseUrl(info)}/command`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: daemonHeaders(info),
       body: JSON.stringify(request),
       signal: controller.signal,
     });

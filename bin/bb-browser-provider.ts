@@ -25,14 +25,20 @@ import {
 import { COMMANDS, type CommandDef } from "../packages/shared/src/commands.ts";
 import { COMMAND_TIMEOUT, generateId } from "../packages/shared/src/index.ts";
 import type { Request, Response } from "../packages/shared/src/protocol.ts";
+import {
+  type DaemonInfo,
+  DAEMON_DIR as SHARED_DAEMON_DIR,
+  DAEMON_JSON as SHARED_DAEMON_JSON,
+  readDaemonJson,
+  isProcessAlive,
+  httpJson,
+} from "../packages/shared/src/daemon-client.ts";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
-import { readFile, unlink } from "node:fs/promises";
+import { unlink } from "node:fs/promises";
 import { execFile } from "node:child_process";
-import { homedir } from "node:os";
 import { join, dirname, resolve, relative } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { request as httpRequest } from "node:http";
 import type { z } from "zod";
 
 declare const process: {
@@ -59,10 +65,8 @@ const RECONNECT_DELAY_MS = 5000;
 const REGISTER_TIMEOUT_MS = 10000;
 const HEARTBEAT_INTERVAL_MS = 15000;
 
-const DAEMON_DIR = process.env.BB_BROWSER_HOME || join(homedir(), ".bb-browser");
-const DAEMON_JSON = join(DAEMON_DIR, "daemon.json");
-const LOCAL_SITES_DIR = join(DAEMON_DIR, "sites");
-const COMMUNITY_SITES_DIR = join(DAEMON_DIR, "bb-sites");
+const LOCAL_SITES_DIR = join(SHARED_DAEMON_DIR, "sites");
+const COMMUNITY_SITES_DIR = join(SHARED_DAEMON_DIR, "bb-sites");
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -88,53 +92,8 @@ const CLIP_VERSION = readPackageVersion();
 // Daemon connection
 // ---------------------------------------------------------------------------
 
-interface DaemonInfo { pid: number; host: string; port: number; token: string }
-
 let cachedDaemonInfo: DaemonInfo | null = null;
 let daemonReady = false;
-
-function isProcessAlive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; } catch { return false; }
-}
-
-function httpJson<T>(
-  method: "GET" | "POST", urlPath: string,
-  info: { host: string; port: number; token: string },
-  body?: unknown, timeout = 5000,
-): Promise<T> {
-  return new Promise((resolveP, reject) => {
-    const payload = body !== undefined ? JSON.stringify(body) : undefined;
-    const req = httpRequest({
-      hostname: info.host, port: info.port, path: urlPath, method,
-      headers: {
-        Authorization: `Bearer ${info.token}`,
-        ...(payload ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) } : {}),
-      },
-      timeout,
-    }, (res) => {
-      const chunks: Buffer[] = [];
-      res.on("data", (c: Buffer) => chunks.push(Buffer.from(c)));
-      res.on("end", () => {
-        const raw = Buffer.concat(chunks).toString("utf8");
-        if ((res.statusCode ?? 500) >= 400) { reject(new Error(`Daemon HTTP ${res.statusCode}: ${raw}`)); return; }
-        try { resolveP(JSON.parse(raw) as T); } catch { reject(new Error(`Invalid JSON from daemon: ${raw}`)); }
-      });
-    });
-    req.on("error", reject);
-    req.on("timeout", () => { req.destroy(); reject(new Error("Daemon request timed out")); });
-    if (payload) req.write(payload);
-    req.end();
-  });
-}
-
-async function readDaemonJson(): Promise<DaemonInfo | null> {
-  try {
-    const raw = await readFile(DAEMON_JSON, "utf8");
-    const info = JSON.parse(raw) as DaemonInfo;
-    if (typeof info.pid === "number" && typeof info.host === "string" && typeof info.port === "number" && typeof info.token === "string") return info;
-    return null;
-  } catch { return null; }
-}
 
 function getDaemonPath(): string {
   const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -150,7 +109,7 @@ async function ensureDaemon(): Promise<void> {
   }
   let info = await readDaemonJson();
   if (info) {
-    if (!isProcessAlive(info.pid)) { try { await unlink(DAEMON_JSON); } catch {} info = null; }
+    if (!isProcessAlive(info.pid)) { try { await unlink(SHARED_DAEMON_JSON); } catch {} info = null; }
     else {
       try {
         const s = await httpJson<{ running?: boolean }>("GET", "/status", info, undefined, 2000);
