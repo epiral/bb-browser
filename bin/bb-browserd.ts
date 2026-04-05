@@ -17,6 +17,7 @@ import { COMMAND_TIMEOUT, generateId } from "../packages/shared/src/index.ts";
 import type { Request, Response } from "../packages/shared/src/protocol.ts";
 import { readFileSync } from "node:fs";
 import { readFile, unlink } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { existsSync } from "node:fs";
@@ -739,10 +740,47 @@ function maybeUnref(timer: ReturnType<typeof setTimeout> | ReturnType<typeof set
  *   - `action` is set from the CommandDef
  *   - All other fields are passed through directly
  */
+// ---------------------------------------------------------------------------
+// Site commands — routed through CLI (not daemon)
+// ---------------------------------------------------------------------------
+
+function runSiteCli(args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const cliPath = new URL("../packages/cli/src/index.ts", import.meta.url).pathname;
+    execFile("bun", ["run", cliPath, "site", ...args], { timeout: 30000, encoding: "utf8" }, (err, stdout, stderr) => {
+      if (err) reject(new Error(stderr || err.message));
+      else resolve(stdout.trim());
+    });
+  });
+}
+
+const SITE_HANDLERS: Record<string, (input: InputObject) => Promise<unknown>> = {
+  site_list: async () => JSON.parse(await runSiteCli(["list", "--json"])),
+  site_search: async (input) => JSON.parse(await runSiteCli(["search", String(input.query || ""), "--json"])),
+  site_info: async (input) => JSON.parse(await runSiteCli(["info", String(input.name || ""), "--json"])),
+  site_recommend: async (input) => JSON.parse(await runSiteCli(["recommend", "--json", ...(input.days ? ["--days", String(input.days)] : [])])),
+  site_run: async (input) => {
+    const name = String(input.name || "");
+    const args = Array.isArray(input.args) ? input.args.map(String) : [];
+    return JSON.parse(await runSiteCli(["run", name, ...args, "--json"]));
+  },
+  site_update: async () => JSON.parse(await runSiteCli(["update", "--json"])),
+};
+
+// ---------------------------------------------------------------------------
+// Command execution — routes to daemon or CLI based on category
+// ---------------------------------------------------------------------------
+
 async function executeViaDaemon(cmdName: string, input: InputObject): Promise<unknown> {
   const cmd = COMMANDS.find((c) => c.name === cmdName);
   if (!cmd) {
     throw new PinixInvokeError("not_found", `Unknown command: ${cmdName}`);
+  }
+
+  // Site commands go through CLI, not daemon
+  const siteHandler = SITE_HANDLERS[cmdName];
+  if (siteHandler) {
+    return siteHandler(input);
   }
 
   await ensureDaemon();
