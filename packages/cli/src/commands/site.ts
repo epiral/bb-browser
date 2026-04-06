@@ -572,6 +572,15 @@ async function siteRun(
     }
   }
 
+  // Warn if local override is shadowing a community adapter
+  if (site.source === "local" && !options.json) {
+    const communityVersion = scanSites(COMMUNITY_SITES_DIR, "community").find(s => s.name === name);
+    if (communityVersion) {
+      console.error(`[local override] ${name} — ${site.filePath}`);
+      console.error(`  Community version also exists. Run \`bb-browser site update\` to check for updates.`);
+    }
+  }
+
   // 读取并解析 JS
   const jsContent = readFileSync(site.filePath, "utf-8");
 
