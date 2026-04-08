@@ -751,7 +751,7 @@ export async function startMcpHttpServer(options: {
   const sessions = new Map<string, StreamableHTTPServerTransport>();
 
   const httpServer = createServer(async (req, res) => {
-    // CORS — allow remote OpenClaw to connect
+    // CORS — allow remote clients to connect
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session-Id");
@@ -792,6 +792,7 @@ export async function startMcpHttpServer(options: {
       // to multiple transports simultaneously).
       transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomBytes(16).toString("hex"),
+        enableJsonResponse: true,
         onsessioninitialized: (sid) => {
           sessions.set(sid, transport);
         },
@@ -828,7 +829,7 @@ export async function startMcpHttpServer(options: {
 
   const displayToken = token ? ` (token: ${token})` : " (no auth)";
   console.error(`[bb-browser MCP] HTTP server listening on http://${host}:${port}/mcp${displayToken}`);
-  console.error(`[bb-browser MCP] Remote OpenClaw mcp.json config:`);
+  console.error(`[bb-browser MCP] Claude Code / Cursor mcp.json config:`);
   console.error(JSON.stringify({
     mcpServers: {
       "bb-browser": {

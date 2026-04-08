@@ -6,102 +6,7 @@
 
 **解决思路**：在本机启动 bb-browser，通过 HTTP 将 MCP 接口暴露给远程 OpenClaw 调用。
 
-**原有限制**：MCP 原本只支持 `StdioServerTransport`（本地进程间通信），无法跨网络访问。
-
-**本次改造**：新增 `--http` 启动模式，使用 `StreamableHTTPServerTransport`，让远程客户端可通过 HTTP 调用 MCP。
-
----
-
-## 代码改动
-
-### 改动 1：`packages/mcp/src/index.ts`
-
-新增 HTTP 传输模式和参数解析，并修复进程退出问题；随后修复了多 session 并发 bug。
-
-**1.1 新增 HTTP 模式**
-
-```diff
-+ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-+ import { createServer } from "node:http";
-+ import { randomBytes } from "node:crypto";
-
-  export async function startMcpServer() {
-    const transport = new StdioServerTransport();  // 原有 stdio 模式不变
-    await server.connect(transport);
-  }
-
-+ // 新增：HTTP 模式，允许远程客户端通过网络调用 MCP
-+ export async function startMcpHttpServer(options: {
-+   host: string;
-+   port: number;
-+   token?: string;
-+ }): Promise<void> {
-+   // ... 启动 HTTP server，打印日志 ...
-+
-+   // 保持进程持续运行，直到 SIGINT/SIGTERM（否则进程会在启动后立即退出）
-+   await new Promise<void>((resolve) => {
-+     process.on("SIGINT", () => { httpServer.close(); resolve(); });
-+     process.on("SIGTERM", () => { httpServer.close(); resolve(); });
-+   });
-+ }
-+
-+ // 启动时根据参数选择模式
-+ if (process.argv.includes("--http")) {
-+   startMcpHttpServer({ host, port, token });   // HTTP 模式（远程）
-+ } else {
-+   startMcpServer();                             // stdio 模式（本地，默认）
-+ }
-```
-
-> **注意**：`startMcpHttpServer` 末尾等待 SIGINT/SIGTERM 信号是关键——没有这个 `await`，Node.js 进程在 `httpServer.listen` 回调执行完后会立即退出，导致服务器只打印日志就关闭。
-
-**1.2 修复多 session 并发 bug（`McpServer` 单例问题）**
-
-**根因**：原来 `server` 是全局单例，每次新 HTTP session 建立时都调用 `server.connect(transport)`，但 `McpServer` 不支持绑定多个 transport——第二个 session 的 `connect()` 会覆盖内部状态，导致第一个 session 的工具响应永远发不回去，OpenClaw 一直挂起等待。
-
-```diff
-- // 全局单例（bug：多 session 共享同一 McpServer 实例）
-- const server = new McpServer({ name: "bb-browser", version: ... }, { instructions: ... });
-- // ... 注册工具 ...
--
-- // HTTP session 建立时：
-- server.connect(transport)   // ← 第 2 个 session 会覆盖第 1 个的状态！
-
-+ // 工厂函数：每个 HTTP session 创建独立的 McpServer 实例
-+ function createMcpServer() {
-+   // per-session tab 追踪（不再全局共享）
-+   const sessionOpenedTabs = new Set<string>();
-+   function rememberSessionTab(...) { ... }
-+   function forgetSessionTab(...) { ... }
-+
-+   const server = new McpServer({ name: "bb-browser", version: ... }, { instructions: ... });
-+   // ... 注册工具 ...
-+   return server;
-+ }
-+
-+ // HTTP session 建立时：
-+ const sessionServer = createMcpServer();  // ← 每个 session 独立实例
-+ sessionServer.connect(transport);
-```
-
-顺带修复：`sessionOpenedTabs`（记录本次 session 打开的 tab）也挪进了工厂函数内部，实现真正的 per-session 隔离——之前是全局 `Set`，所有 session 共享。
-
-### 改动 2：`packages/cli/src/index.ts`
-
-修复 `--mcp` 启动时透传参数（原来丢弃了 `--http` 等额外参数）：
-
-```diff
-  if (process.argv.includes("--mcp")) {
-    const mcpPath = fileURLToPath(new URL("./mcp.js", import.meta.url));
-    const { spawn } = await import("node:child_process");
--   const child = spawn(process.execPath, [mcpPath], { stdio: "inherit" });
-+   // 透传 --http / --http-host / --http-port / --http-token 给 MCP 进程
-+   const mcpArgv = process.argv.slice(2).filter(a => a !== "--mcp");
-+   const child = spawn(process.execPath, [mcpPath, ...mcpArgv], { stdio: "inherit" });
-    child.on("exit", (code) => process.exit(code ?? 0));
-    return;
-  }
-```
+**原理**：MCP 支持 `StreamableHTTPServerTransport`，通过 `--http` 启动模式即可让远程客户端通过 HTTP 调用 MCP。
 
 ---
 
@@ -144,40 +49,72 @@ npm install -g .
 
 ### 一键启动脚本（推荐）
 
-将以下内容保存为 `start-bb-browser.sh`：
-
-```bash
-#!/bin/bash
-# 1. 启动 Edge（后台，日志静默）
-"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" \
-  --remote-debugging-port=19825 \
-  --user-data-dir="$HOME/.bb-browser/browser/user-data" \
-  --no-first-run \
-  --no-default-browser-check \
-  about:blank \
-  > /dev/null 2>&1 &
-
-echo "[1/2] Edge 启动中，等待 2 秒..."
-sleep 2
-
-# 2. 启动 MCP HTTP Server（前台保持运行，daemon 会自动启动）
-echo "[2/2] 启动 MCP HTTP Server..."
-bb-browser --mcp --http \
-  --http-host 0.0.0.0 \
-  --http-port 13337 \
-  --http-token "${BB_MCP_TOKEN:-my-secret}"
-```
+仓库根目录已有 [`start-bb-browser.sh`](start-bb-browser.sh)，直接使用：
 
 ```bash
 chmod +x start-bb-browser.sh
-./start-bb-browser.sh
+BB_MCP_TOKEN=my-secret ./start-bb-browser.sh
+```
+
+脚本内容如下，支持通过环境变量覆盖端口和 token：
+
+```bash
+#!/bin/bash
+
+BB_MCP_TOKEN="${BB_MCP_TOKEN:-my-secret}"
+BB_MCP_PORT="${BB_MCP_PORT:-13337}"
+BB_CHROME_PORT="${BB_CHROME_PORT:-19825}"
+
+# 清理旧进程
+pkill -f "bb-browser" 2>/dev/null || true
+sleep 2
+
+# 启动浏览器（后台静默）
+"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" \
+  --remote-debugging-port="$BB_CHROME_PORT" \
+  --user-data-dir="$HOME/.bb-browser/browser/user-data" \
+  --no-first-run --no-default-browser-check \
+  about:blank > /dev/null 2>&1 &
+
+sleep 3
+
+# 启动 daemon（自动发现 Chrome）
+bb-browser daemon &
+DAEMON_PID=$!
+sleep 3
+
+# 启动 MCP HTTP Server（后台）
+bb-browser --mcp --http \
+  --http-host 0.0.0.0 \
+  --http-port "$BB_MCP_PORT" \
+  --http-token "$BB_MCP_TOKEN" &
+MCP_PID=$!
+
+echo "   bb-browser started:"
+echo "   Chrome CDP: 127.0.0.1:$BB_CHROME_PORT"
+echo "   Daemon PID: $DAEMON_PID"
+echo "   MCP HTTP: 0.0.0.0:$BB_MCP_PORT (token: $BB_MCP_TOKEN)"
+echo "   MCP PID: $MCP_PID"
+
+# 保持脚本运行，Ctrl+C 时优雅关闭
+trap "kill -9 $DAEMON_PID $MCP_PID 2>/dev/null; exit" SIGINT SIGTERM
+
+wait
 ```
 
 启动后输出：
 ```
-[2/2] 启动 MCP HTTP Server...
+[Daemon] HTTP server listening on http://127.0.0.1:19824
+[Daemon] Auth token: d2849755993ad1dbf651ae67044f3680
+[Daemon] Connecting to Chrome CDP at 127.0.0.1:19825...
+[Daemon] CDP connected, monitoring 1 tab(s)
+   bb-browser started:
+   Chrome CDP: 127.0.0.1:19825
+   Daemon PID: 39508
+   MCP HTTP: 0.0.0.0:13337 (token: my-secret)
+   MCP PID: 39524
 [bb-browser MCP] HTTP server listening on http://0.0.0.0:13337/mcp (token: my-secret)
-[bb-browser MCP] Remote OpenClaw mcp.json config:
+[bb-browser MCP] Claude Code / Cursor mcp.json config:
 {
   "mcpServers": {
     "bb-browser": {
@@ -191,29 +128,28 @@ chmod +x start-bb-browser.sh
 }
 ```
 
-> `Ctrl+C` 停止 MCP Server。Edge 会继续在后台运行（下次启动更快）。
+> `Ctrl+C` 优雅关闭 daemon 和 MCP Server，Edge 会继续在后台运行（下次启动更快）。
 
 ---
 
 ### 手动分步启动
 
-如果不用脚本，也可以手动开 **2 个终端**：
+如果不用脚本，可以手动分步执行：
 
-**终端 1 — 启动 Edge：**
 ```bash
+# 1. 启动 Edge
 "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" \
   --remote-debugging-port=19825 \
   --user-data-dir="$HOME/.bb-browser/browser/user-data" \
   --no-first-run --no-default-browser-check about:blank \
   > /dev/null 2>&1 &
-```
 
-**终端 2 — 启动 MCP HTTP Server（保持运行）：**
-```bash
+# 2. 启动 Daemon
+bb-browser daemon &
+
+# 3. 启动 MCP HTTP Server（前台保持运行）
 bb-browser --mcp --http --http-host 0.0.0.0 --http-port 13337 --http-token my-secret
 ```
-
-> Daemon 不需要手动启动，MCP Server 收到请求时会自动拉起。
 
 ---
 
@@ -386,33 +322,14 @@ pm2 startup   # 设置开机自启
 
 ### 方式 3：一键启动脚本
 
-```bash
-#!/bin/bash
-# start-bb-browser.sh
-
-# 1. 启动 Chrome
-open -a "Google Chrome" --args --remote-debugging-port=19825
-
-# 等待 Chrome 启动
-sleep 2
-
-# 2. 启动 Daemon（后台）
-bb-browser daemon &
-
-# 等待 Daemon 连接 Chrome
-sleep 3
-
-# 3. 启动 MCP HTTP Server（前台，输出日志）
-bb-browser --mcp --http \
-  --http-host 0.0.0.0 \
-  --http-port 13337 \
-  --http-token "${BB_MCP_TOKEN:-$(openssl rand -hex 16)}"
-```
+使用仓库根目录的 [`start-bb-browser.sh`](start-bb-browser.sh)：
 
 ```bash
 chmod +x start-bb-browser.sh
 BB_MCP_TOKEN=my-secret-token ./start-bb-browser.sh
 ```
+
+支持通过环境变量覆盖端口和 token（`BB_MCP_TOKEN`、`BB_MCP_PORT`、`BB_CHROME_PORT`）。
 
 ---
 
@@ -422,27 +339,44 @@ OpenClaw 连接后可调用的工具：
 
 | 工具名 | 说明 |
 |--------|------|
-| `browser_open` | 打开 URL |
-| `browser_snapshot` | 获取页面可访问性树 |
+| `browser_open` | 打开 URL（自动新建标签页） |
+| `browser_snapshot` | 获取页面可访问性树（含 ref 编号） |
+| `browser_screenshot` | 截图（返回 PNG） |
+| `browser_get` | 获取元素属性或页面 url/title |
 | `browser_click` | 点击元素 |
-| `browser_fill` | 填充输入框 |
-| `browser_type` | 逐字符输入 |
-| `browser_press` | 发送按键 |
+| `browser_hover` | 悬停元素 |
+| `browser_fill` | 填充输入框（清空后填入） |
+| `browser_type` | 逐字符输入（不清空） |
+| `browser_check` | 勾选复选框 |
+| `browser_uncheck` | 取消勾选复选框 |
+| `browser_select` | 下拉框选择 |
+| `browser_press` | 发送按键（支持组合键，如 Control+a） |
 | `browser_scroll` | 滚动页面 |
-| `browser_screenshot` | 截图 |
 | `browser_eval` | 执行 JavaScript |
-| `browser_get` | 获取元素属性 |
-| `browser_tab_list` | 列出标签页 |
+| `browser_wait` | 等待指定毫秒 |
+| `browser_close` | 关闭当前标签页 |
+| `browser_close_all` | 关闭本次会话打开的所有标签页 |
+| `browser_back` | 后退 |
+| `browser_forward` | 前进 |
+| `browser_refresh` | 刷新页面 |
+| `browser_tab_list` | 列出所有标签页 |
 | `browser_tab_new` | 新建标签页 |
-| `browser_network` | 获取网络请求 |
-| `browser_console` | 获取控制台消息 |
-| `browser_errors` | 获取 JS 错误 |
+| `browser_tab_select` | 切换标签页 |
+| `browser_tab_close` | 关闭指定标签页 |
+| `browser_network` | 获取/管理网络请求（支持 since 增量查询） |
+| `browser_console` | 获取/清空控制台消息 |
+| `browser_errors` | 获取/清空 JS 错误 |
+| `browser_trace` | 录制用户操作 |
+| `browser_history` | 搜索浏览历史 |
+| `browser_dialog` | 处理弹窗（alert/confirm/prompt） |
+| `browser_frame` | 切换到 iframe |
+| `browser_frame_main` | 切换回主框架 |
 | `site_list` | 列出可用 site 适配器 |
 | `site_search` | 搜索适配器 |
 | `site_info` | 获取适配器详情 |
+| `site_recommend` | 基于浏览历史推荐适配器 |
 | `site_run` | 运行 site 适配器 |
 | `site_update` | 更新社区适配器库 |
-| `browser_close_all` | 关闭本次会话打开的标签页 |
 
 ---
 
@@ -455,13 +389,12 @@ OpenClaw 连接后可调用的工具：
 | `503 Service Unavailable` | Chrome 未连接到 Daemon | 检查 `bb-browser daemon` 和 Chrome 是否运行 |
 | `Network timeout` | 防火墙或网络不通 | 检查防火墙规则，或改用 SSH 隧道 / Tailscale |
 | 工具调用返回 `Chrome is not connected` | Daemon 没有连上 Chrome | 重启 `bb-browser daemon` |
-| 工具调用无响应、OpenClaw 一直挂起 | `McpServer` 单例被多 session 共享，旧版本 bug | 升级到最新版本（已修复：每 session 独立 `McpServer` 实例） |
 
 ---
 
 ## 相关文件
 
-- [`packages/mcp/src/index.ts`](packages/mcp/src/index.ts) — MCP 服务器实现（本次主要改动）
-- [`packages/cli/src/index.ts`](packages/cli/src/index.ts) — CLI 入口（透传参数修复）
+- [`packages/mcp/src/index.ts`](packages/mcp/src/index.ts) — MCP 服务器实现
+- [`packages/cli/src/index.ts`](packages/cli/src/index.ts) — CLI 入口
 - [`packages/daemon/src/index.ts`](packages/daemon/src/index.ts) — Daemon 实现
 - [`skills/bb-browser-openclaw/SKILL.md`](skills/bb-browser-openclaw/SKILL.md) — OpenClaw 使用说明
