@@ -11,17 +11,11 @@
 import { generateId, type Request, type Response } from "@bb-browser/shared";
 import { sendCommand } from "../client.js";
 import { ensureDaemonRunning } from "../daemon-manager.js";
+import { parseLocatorInput } from "../locator.js";
 
 export interface CheckOptions {
   json?: boolean;
   tabId?: string | number;
-}
-
-/**
- * 解析 ref 参数，支持 "@5" 或 "5" 格式
- */
-function parseRef(ref: string): string {
-  return ref.startsWith("@") ? ref.slice(1) : ref;
 }
 
 /**
@@ -37,7 +31,7 @@ export async function checkCommand(
 
   await ensureDaemonRunning();
 
-  const parsedRef = parseRef(ref);
+  const parsedRef = parseLocatorInput(ref);
 
   const request: Request = {
     id: generateId(),
@@ -89,7 +83,7 @@ export async function uncheckCommand(
 
   await ensureDaemonRunning();
 
-  const parsedRef = parseRef(ref);
+  const parsedRef = parseLocatorInput(ref);
 
   const request: Request = {
     id: generateId(),

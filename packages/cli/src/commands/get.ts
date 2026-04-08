@@ -9,6 +9,7 @@
 import { generateId, type Request, type Response } from "@bb-browser/shared";
 import { sendCommand } from "../client.js";
 import { ensureDaemonRunning } from "../daemon-manager.js";
+import { parseLocatorInput } from "../locator.js";
 
 export interface GetOptions {
   json?: boolean;
@@ -17,13 +18,6 @@ export interface GetOptions {
 
 /** 支持的 get 属性类型 */
 export type GetAttribute = "text" | "url" | "title";
-
-/**
- * 解析 ref 参数，支持 "@5" 或 "5" 格式
- */
-function parseRef(ref: string): string {
-  return ref.startsWith("@") ? ref.slice(1) : ref;
-}
 
 export async function getCommand(
   attribute: GetAttribute,
@@ -43,7 +37,7 @@ export async function getCommand(
     id: generateId(),
     action: "get",
     attribute,
-    ref: ref ? parseRef(ref) : undefined,
+    ref: ref ? parseLocatorInput(ref) : undefined,
     tabId: options.tabId,
   };
 

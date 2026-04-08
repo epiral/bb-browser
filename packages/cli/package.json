@@ -11,7 +11,7 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "test": "tsx --test src/openclaw-json.test.ts src/openclaw-bridge.test.ts src/__tests__/daemon-startup.test.ts"
+    "test": "tsx --test src/openclaw-json.test.ts src/openclaw-bridge.test.ts src/__tests__/daemon-startup.test.ts src/locator.test.ts"
   },
   "dependencies": {
     "@bb-browser/shared": "workspace:*"

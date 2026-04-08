@@ -14,11 +14,14 @@ import type {
   ResponseData,
   RefInfo,
   SnapshotData,
+  TagRecord,
   TraceEvent,
   TraceStatus,
 } from "@bb-browser/shared";
 import { CdpConnection, type CdpTargetInfo } from "./cdp-connection.js";
 import type { TabState } from "./tab-state.js";
+import { extractTagFingerprint, resolveTagMatches } from "./tag-locator.js";
+import { getTag, listTags, removeTag, setTag } from "./tag-store.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -78,6 +81,18 @@ function ok(id: string, data?: ExtResponseData): Response {
 
 function fail(id: string, error: unknown): Response {
   return { id, success: false, error: buildRequestError(error).message };
+}
+
+function getDomainFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (!parsed.hostname) {
+      throw new Error("Current page does not have a hostname");
+    }
+    return parsed.hostname.toLowerCase();
+  } catch {
+    throw new Error(`Cannot create or resolve tags on this page: ${url}`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -323,6 +338,80 @@ async function parseRef(cdp: CdpConnection, targetId: string, tab: TabState, ref
   throw new Error(`Unknown ref: ${ref}. Run snapshot first.`);
 }
 
+interface ParsedTagLocator {
+  name: string;
+  index?: number;
+}
+
+function parseTagLocator(locator: string): ParsedTagLocator | null {
+  const match = /^@@([A-Za-z0-9._-]+)(?:\[(\d+)\])?$/.exec(locator);
+  if (!match) return null;
+  return {
+    name: match[1],
+    index: match[2] !== undefined ? Number(match[2]) : undefined,
+  };
+}
+
+async function resolveLocator(
+  cdp: CdpConnection,
+  targetId: string,
+  tab: TabState,
+  pageUrl: string,
+  locator: string,
+): Promise<{ backendNodeId: number; role?: string; name?: string; locatorKind: "ref" | "tag" }> {
+  const tagLocator = parseTagLocator(locator);
+  if (!tagLocator) {
+    const backendNodeId = await parseRef(cdp, targetId, tab, locator);
+    const refInfo = tab.refs[locator];
+    return {
+      backendNodeId,
+      role: refInfo?.role,
+      name: refInfo?.name,
+      locatorKind: "ref",
+    };
+  }
+
+  const domain = getDomainFromUrl(pageUrl);
+  const record = getTag(domain, tagLocator.name);
+  if (!record) {
+    throw new Error(`Unknown tag: @@${tagLocator.name}. Run bb-browser tag set ${tagLocator.name} @<ref> first.`);
+  }
+
+  const matches = await resolveTagMatches(cdp, targetId, record);
+  if (matches.length === 0) {
+    throw new Error(`Tag did not match any element: @@${tagLocator.name}`);
+  }
+
+  if (record.mode === "single") {
+    if (tagLocator.index !== undefined) {
+      throw new Error(`Single tag does not accept an index: @@${tagLocator.name}`);
+    }
+    if (matches.length > 1) {
+      throw new Error(`Tag is ambiguous on this page: @@${tagLocator.name}`);
+    }
+    return {
+      backendNodeId: await resolveBackendNodeIdByXPath(cdp, targetId, matches[0].xpath),
+      role: matches[0].role,
+      name: matches[0].name,
+      locatorKind: "tag",
+    };
+  }
+
+  if (tagLocator.index === undefined) {
+    throw new Error(`List tag requires an index: @@${tagLocator.name}[0]`);
+  }
+  if (tagLocator.index < 0 || tagLocator.index >= matches.length) {
+    throw new Error(`Tag index out of range: @@${tagLocator.name}[${tagLocator.index}]`);
+  }
+  const chosen = matches[tagLocator.index];
+  return {
+    backendNodeId: await resolveBackendNodeIdByXPath(cdp, targetId, chosen.xpath),
+    role: chosen.role,
+    name: chosen.name,
+    locatorKind: "tag",
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Input helpers
 // ---------------------------------------------------------------------------
@@ -444,6 +533,66 @@ async function insertTextIntoNode(
     await cdp.sessionCommand(targetId, "DOM.focus", { backendNodeId });
     await cdp.sessionCommand(targetId, "Input.insertText", { text });
   }
+}
+
+async function flashMatchedNode(
+  cdp: CdpConnection,
+  targetId: string,
+  backendNodeId: number,
+): Promise<void> {
+  const resolved = await cdp.sessionCommand<{ object: { objectId: string } }>(
+    targetId,
+    "DOM.resolveNode",
+    { backendNodeId },
+  );
+
+  await cdp.sessionCommand(targetId, "Runtime.callFunctionOn", {
+    objectId: resolved.object.objectId,
+    awaitPromise: true,
+    functionDeclaration: `async function() {
+      if (!(this instanceof Element)) {
+        throw new Error('Ref does not resolve to an element');
+      }
+      this.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
+      const overlay = document.createElement('div');
+      const rect = this.getBoundingClientRect();
+      overlay.style.position = 'fixed';
+      overlay.style.pointerEvents = 'none';
+      overlay.style.zIndex = '2147483647';
+      overlay.style.left = rect.left + 'px';
+      overlay.style.top = rect.top + 'px';
+      overlay.style.width = rect.width + 'px';
+      overlay.style.height = rect.height + 'px';
+      overlay.style.border = '3px solid #ff6a00';
+      overlay.style.background = 'rgba(255, 196, 0, 0.18)';
+      overlay.style.borderRadius = '8px';
+      overlay.style.boxShadow = '0 0 0 4px rgba(255, 106, 0, 0.18), 0 0 24px rgba(255, 106, 0, 0.45)';
+      overlay.style.transition = 'opacity 180ms ease';
+      document.body.appendChild(overlay);
+
+      const sync = () => {
+        const next = this.getBoundingClientRect();
+        overlay.style.left = next.left + 'px';
+        overlay.style.top = next.top + 'px';
+        overlay.style.width = next.width + 'px';
+        overlay.style.height = next.height + 'px';
+      };
+
+      let visible = true;
+      const timer = window.setInterval(() => {
+        sync();
+        visible = !visible;
+        overlay.style.opacity = visible ? '1' : '0.15';
+      }, 220);
+
+      await new Promise((resolve) => window.setTimeout(resolve, 2400));
+      window.clearInterval(timer);
+      overlay.style.opacity = '0';
+      await new Promise((resolve) => window.setTimeout(resolve, 180));
+      overlay.remove();
+      return true;
+    }`,
+  });
 }
 
 async function getAttributeValue(
@@ -617,14 +766,88 @@ export async function dispatchRequest(
       });
     }
 
+    case "tag_set": {
+      if (!request.tagName) return fail(request.id, "Missing tagName parameter");
+      if (!request.ref) return fail(request.id, "Missing ref parameter");
+      const domain = getDomainFromUrl(target.url);
+      const backendNodeId = await parseRef(cdp, target.id, tab, request.ref);
+      const fingerprint = await extractTagFingerprint(cdp, target.id, backendNodeId);
+      const now = new Date().toISOString();
+      const existing = getTag(domain, request.tagName);
+      const record: TagRecord = {
+        name: request.tagName,
+        domain,
+        mode: request.tagMode ?? "single",
+        fingerprint,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      };
+      setTag(record);
+      return ok(request.id, {
+        tagInfo: record,
+        tab: shortId,
+      });
+    }
+
+    case "tag_get": {
+      if (!request.tagName) return fail(request.id, "Missing tagName parameter");
+      const domain = getDomainFromUrl(target.url);
+      const record = getTag(domain, request.tagName);
+      if (!record) return fail(request.id, `Tag not found: ${request.tagName}`);
+      return ok(request.id, {
+        tagInfo: record,
+        tab: shortId,
+      });
+    }
+
+    case "tag_list": {
+      const domain = getDomainFromUrl(target.url);
+      return ok(request.id, {
+        tags: listTags(domain),
+        url: target.url,
+        tab: shortId,
+      });
+    }
+
+    case "tag_remove": {
+      if (!request.tagName) return fail(request.id, "Missing tagName parameter");
+      const domain = getDomainFromUrl(target.url);
+      if (!removeTag(domain, request.tagName)) {
+        return fail(request.id, `Tag not found: ${request.tagName}`);
+      }
+      return ok(request.id, {
+        tab: shortId,
+      });
+    }
+
+    case "tag_resolve": {
+      if (!request.tagName) return fail(request.id, "Missing tagName parameter");
+      const domain = getDomainFromUrl(target.url);
+      const record = getTag(domain, request.tagName);
+      if (!record) return fail(request.id, `Tag not found: ${request.tagName}`);
+      const matches = await resolveTagMatches(cdp, target.id, record);
+      return ok(request.id, {
+        tagInfo: record,
+        tagMatches: matches,
+        matchedCount: matches.length,
+        tab: shortId,
+      });
+    }
+
     // -----------------------------------------------------------------------
     // Element interaction
     // -----------------------------------------------------------------------
+    case "match":
     case "click":
     case "hover": {
       if (!request.ref) return fail(request.id, "Missing ref parameter");
       const seq = tab.recordAction();
-      const backendNodeId = await parseRef(cdp, target.id, tab, request.ref);
+      const resolved = await resolveLocator(cdp, target.id, tab, target.url, request.ref);
+      const backendNodeId = resolved.backendNodeId;
+      if (request.action === "match") {
+        await flashMatchedNode(cdp, target.id, backendNodeId);
+        return ok(request.id, { tab: shortId, seq, role: resolved.role, name: resolved.name });
+      }
       const point = await getInteractablePoint(cdp, target.id, backendNodeId);
       await cdp.sessionCommand(target.id, "Input.dispatchMouseEvent", {
         type: "mouseMoved", x: point.x, y: point.y, button: "none",
@@ -632,7 +855,7 @@ export async function dispatchRequest(
       if (request.action === "click") {
         await mouseClick(cdp, target.id, point.x, point.y);
       }
-      return ok(request.id, { tab: shortId, seq });
+      return ok(request.id, { tab: shortId, seq, role: resolved.role, name: resolved.name });
     }
 
     case "fill":
@@ -640,12 +863,15 @@ export async function dispatchRequest(
       if (!request.ref) return fail(request.id, "Missing ref parameter");
       if (request.text == null) return fail(request.id, "Missing text parameter");
       const seq = tab.recordAction();
-      const backendNodeId = await parseRef(cdp, target.id, tab, request.ref);
+      const resolved = await resolveLocator(cdp, target.id, tab, target.url, request.ref);
+      const backendNodeId = resolved.backendNodeId;
       await insertTextIntoNode(cdp, target.id, backendNodeId, request.text, request.action === "fill");
       return ok(request.id, {
         value: request.text,
         tab: shortId,
         seq,
+        role: resolved.role,
+        name: resolved.name,
       });
     }
 
@@ -654,14 +880,15 @@ export async function dispatchRequest(
       if (!request.ref) return fail(request.id, "Missing ref parameter");
       const seq = tab.recordAction();
       const desired = request.action === "check";
-      const backendNodeId = await parseRef(cdp, target.id, tab, request.ref);
-      const resolved = await cdp.sessionCommand<{ object: { objectId: string } }>(
+      const locator = await resolveLocator(cdp, target.id, tab, target.url, request.ref);
+      const backendNodeId = locator.backendNodeId;
+      const resolvedNode = await cdp.sessionCommand<{ object: { objectId: string } }>(
         target.id,
         "DOM.resolveNode",
         { backendNodeId },
       );
       await cdp.sessionCommand(target.id, "Runtime.callFunctionOn", {
-        objectId: resolved.object.objectId,
+        objectId: resolvedNode.object.objectId,
         functionDeclaration: `function() { this.checked = ${desired}; this.dispatchEvent(new Event('input', { bubbles: true })); this.dispatchEvent(new Event('change', { bubbles: true })); }`,
       });
       return ok(request.id, { tab: shortId, seq });
@@ -670,20 +897,23 @@ export async function dispatchRequest(
     case "select": {
       if (!request.ref || request.value == null) return fail(request.id, "Missing ref or value parameter");
       const seq = tab.recordAction();
-      const backendNodeId = await parseRef(cdp, target.id, tab, request.ref);
-      const resolved = await cdp.sessionCommand<{ object: { objectId: string } }>(
+      const locator = await resolveLocator(cdp, target.id, tab, target.url, request.ref);
+      const backendNodeId = locator.backendNodeId;
+      const resolvedNode = await cdp.sessionCommand<{ object: { objectId: string } }>(
         target.id,
         "DOM.resolveNode",
         { backendNodeId },
       );
       await cdp.sessionCommand(target.id, "Runtime.callFunctionOn", {
-        objectId: resolved.object.objectId,
+        objectId: resolvedNode.object.objectId,
         functionDeclaration: `function() { this.value = ${JSON.stringify(request.value)}; this.dispatchEvent(new Event('input', { bubbles: true })); this.dispatchEvent(new Event('change', { bubbles: true })); }`,
       });
       return ok(request.id, {
         value: request.value,
         tab: shortId,
         seq,
+        role: locator.role,
+        name: locator.name,
       });
     }
 
@@ -702,13 +932,14 @@ export async function dispatchRequest(
         });
       }
       if (!request.ref) return fail(request.id, "Missing ref parameter");
+      const resolved = await resolveLocator(cdp, target.id, tab, target.url, request.ref);
       const value = await getAttributeValue(
         cdp,
         target.id,
-        await parseRef(cdp, target.id, tab, request.ref),
+        resolved.backendNodeId,
         request.attribute,
       );
-      return ok(request.id, { value, tab: shortId });
+      return ok(request.id, { value, tab: shortId, role: resolved.role, name: resolved.name });
     }
 
     case "press": {
@@ -746,6 +977,11 @@ export async function dispatchRequest(
     }
 
     case "wait": {
+      if (request.waitType === "element") {
+        if (!request.ref) return fail(request.id, "Missing ref parameter");
+        await resolveLocator(cdp, target.id, tab, target.url, request.ref);
+        return ok(request.id, { tab: shortId });
+      }
       await new Promise((resolve) => setTimeout(resolve, request.ms ?? 1000));
       return ok(request.id, { tab: shortId });
     }

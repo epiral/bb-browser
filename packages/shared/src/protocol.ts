@@ -9,6 +9,7 @@ export type ActionType =
   | "open"
   | "snapshot"
   | "click"
+  | "match"
   | "hover"
   | "fill"
   | "type"
@@ -36,7 +37,12 @@ export type ActionType =
   | "console"
   | "errors"
   | "trace"
-  | "history";
+  | "history"
+  | "tag_set"
+  | "tag_get"
+  | "tag_list"
+  | "tag_remove"
+  | "tag_resolve";
 
 /** 请求类型 */
 export interface Request {
@@ -115,6 +121,10 @@ export interface Request {
   status?: string;
   /** 返回条数限制（observation 命令使用） */
   limit?: number;
+  /** 持久化 tag 名称（tag 命令使用） */
+  tagName?: string;
+  /** 持久化 tag 模式（tag_set 命令使用） */
+  tagMode?: "single" | "list";
 }
 
 /** 元素引用信息 */
@@ -129,6 +139,40 @@ export interface RefInfo {
   name?: string;
   /** 标签名 */
   tagName?: string;
+}
+
+export interface TagFingerprint {
+  tagName: string;
+  role?: string;
+  name?: string;
+  text?: string;
+  placeholder?: string;
+  id?: string;
+  inputName?: string;
+  classTokens?: string[];
+  dataAttributes?: Record<string, string>;
+  ariaAttributes?: Record<string, string>;
+  xpath?: string;
+  parentXPath?: string;
+  parentTagName?: string;
+}
+
+export interface TagRecord {
+  name: string;
+  domain: string;
+  mode: "single" | "list";
+  fingerprint: TagFingerprint;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TagMatch {
+  index: number;
+  xpath: string;
+  tagName: string;
+  role?: string;
+  name?: string;
+  text?: string;
 }
 
 /** 标签页信息 */
@@ -247,6 +291,10 @@ export interface ResponseData {
   title?: string;
   /** 当前 URL */
   url?: string;
+  /** 元素角色 */
+  role?: string;
+  /** 元素名称 */
+  name?: string;
   /** Tab ID */
   tabId?: number | string;
   /** 短标签页 ID（daemon 模式） */
@@ -314,6 +362,14 @@ export interface ResponseData {
     visits: number;
     titles: string[];
   }>;
+  /** 持久化 tag 信息 */
+  tagInfo?: TagRecord;
+  /** 持久化 tag 列表 */
+  tags?: TagRecord[];
+  /** 当前 tag 解析结果 */
+  tagMatches?: TagMatch[];
+  /** 当前 tag 命中的元素数量 */
+  matchedCount?: number;
 }
 
 /** 响应类型 */
