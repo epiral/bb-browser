@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.11.3](https://github.com/epiral/bb-browser/compare/bb-browser-v0.11.2...bb-browser-v0.11.3) (2026-04-09)
+
+
+### Features
+
+* unified command registry for CLI/MCP/Edge Clip ([#171](https://github.com/epiral/bb-browser/issues/171)) ([fd0d795](https://github.com/epiral/bb-browser/commit/fd0d7956e2d4cc58a659ff8f1534167e6f81f05f))
+* warn when local adapter overrides community version ([#178](https://github.com/epiral/bb-browser/issues/178)) ([#179](https://github.com/epiral/bb-browser/issues/179)) ([3a24359](https://github.com/epiral/bb-browser/commit/3a24359ac676ea2e0f1b28592c8a91a70593b9a1))
+
+
+### Bug Fixes
+
+* preserve structured error from site CLI in provider ([#187](https://github.com/epiral/bb-browser/issues/187)) ([0da5e48](https://github.com/epiral/bb-browser/commit/0da5e48a753c89404904010886eb7761e43d89ee))
+
 ## [0.11.2](https://github.com/epiral/bb-browser/compare/bb-browser-v0.11.1...bb-browser-v0.11.2) (2026-04-03)
 
 
