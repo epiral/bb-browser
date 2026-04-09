@@ -361,7 +361,7 @@ function runSiteCli(args: string[]): Promise<string> {
       if (err) {
         const distPath = new URL("../dist/cli.js", import.meta.url).pathname;
         execFile("node", [distPath, "site", ...args], { timeout: 30000, encoding: "utf8" }, (err2, stdout2, stderr2) => {
-          if (err2) reject(new Error(stderr2 || stderr || err2.message));
+          if (err2) reject(new Error(stdout2.trim() || stderr2 || err2.message));
           else resolve(stdout2.trim());
         });
       } else {
