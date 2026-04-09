@@ -812,8 +812,10 @@ export async function dispatchRequest(
       }
 
       if (!selected) return fail(request.id, "Tab not found");
-      cdp.currentTargetId = selected.id;
+      // Keep daemon state aligned with the visible Chrome tab.
+      await cdp.browserCommand("Target.activateTarget", { targetId: selected.id });
       await cdp.attachAndEnable(selected.id);
+      cdp.currentTargetId = selected.id;
       const selTab = cdp.tabManager.getTab(selected.id);
       return ok(request.id, {
         tabId: selected.id,
