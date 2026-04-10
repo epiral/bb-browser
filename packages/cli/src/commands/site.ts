@@ -657,8 +657,34 @@ async function siteRun(
   // 确定目标 tab
   let targetTabId: number | undefined = options.tabId;
 
-  // 如果用户没指定 --tab，自动查找匹配域名的 tab
-  if (!targetTabId && site.domain) {
+  // Adapters with "network" capability (and without "cookie") make cross-origin
+  // API calls that fail under page-context CORS. Execute them on an about:blank
+  // tab where the managed browser's --disable-web-security flag takes effect.
+  const hasNetworkCap = Array.isArray(site.capabilities) && site.capabilities.includes("network");
+  const hasCookieCap = Array.isArray(site.capabilities) && site.capabilities.includes("cookie");
+  const useBlankTab = hasNetworkCap && !hasCookieCap && !targetTabId;
+
+  if (useBlankTab) {
+    // Find or create an about:blank tab for CORS-free execution
+    const listReq: Request = { id: generateId(), action: "tab_list" };
+    const listResp: Response = await sendCommand(listReq);
+    if (listResp.success && listResp.data?.tabs) {
+      const blankTab = listResp.data.tabs.find((tab: TabInfo) => tab.url === "about:blank");
+      if (blankTab) {
+        targetTabId = blankTab.tabId;
+      }
+    }
+    if (!targetTabId) {
+      const newResp = await sendCommand({
+        id: generateId(),
+        action: "tab_new",
+        url: "about:blank",
+      });
+      targetTabId = newResp.data?.tabId;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  } else if (!targetTabId && site.domain) {
+    // 如果用户没指定 --tab，自动查找匹配域名的 tab
     const listReq: Request = { id: generateId(), action: "tab_list" };
     const listResp: Response = await sendCommand(listReq);
 
@@ -684,7 +710,29 @@ async function siteRun(
 
   // 执行
   const evalReq: Request = { id: generateId(), action: "eval", script, tabId: targetTabId };
-  const evalResp: Response = await sendCommand(evalReq);
+  let evalResp: Response = await sendCommand(evalReq);
+
+  // Fallback: if eval failed with "Failed to fetch" on a domain tab, retry on
+  // about:blank where --disable-web-security eliminates CORS restrictions.
+  // This catches adapters that lack capabilities: ["network"] but still make
+  // cross-origin API calls.
+  if (!evalResp.success && /Failed to fetch/i.test(evalResp.error || "") && !useBlankTab) {
+    let blankTabId: string | undefined;
+    const listReq: Request = { id: generateId(), action: "tab_list" };
+    const listResp: Response = await sendCommand(listReq);
+    if (listResp.success && listResp.data?.tabs) {
+      const blankTab = listResp.data.tabs.find((tab: TabInfo) => tab.url === "about:blank");
+      if (blankTab) blankTabId = blankTab.tabId;
+    }
+    if (!blankTabId) {
+      const newResp = await sendCommand({ id: generateId(), action: "tab_new", url: "about:blank" });
+      blankTabId = newResp.data?.tabId;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    if (blankTabId) {
+      evalResp = await sendCommand({ id: generateId(), action: "eval", script, tabId: blankTabId });
+    }
+  }
 
   if (!evalResp.success) {
     const hint = site.domain
