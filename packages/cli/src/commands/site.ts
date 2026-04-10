@@ -682,6 +682,51 @@ async function siteRun(
     }
   }
 
+  // Adapters with capabilities: ["network"] make cross-origin API calls that
+  // fail under page-context CORS/CSP. Execute them in Node instead where
+  // fetch() has no CORS restrictions.
+  const hasNetworkCap = site.capabilities?.includes("network");
+  if (hasNetworkCap) {
+    try {
+      const asyncFn = new Function(`return (async () => { return ${script}; })()`);
+      const result = await asyncFn();
+      let parsed: unknown = result;
+
+      if (typeof parsed === "object" && parsed !== null && "error" in parsed) {
+        const errObj = parsed as { error: string; hint?: string };
+        if (options.json) {
+          console.log(JSON.stringify({ id: generateId(), success: false, error: errObj.error, hint: errObj.hint }));
+        } else {
+          console.error(`[error] site ${name}: ${errObj.error}`);
+          if (errObj.hint) console.error(`  Hint: ${errObj.hint}`);
+        }
+        process.exit(1);
+      }
+
+      if (options.jq) {
+        const { applyJq } = await import("../jq.js");
+        const expr = options.jq.replace(/^\.data\./, '.');
+        const results = applyJq(parsed, expr);
+        for (const r of results) {
+          console.log(typeof r === "string" ? r : JSON.stringify(r));
+        }
+      } else if (options.json) {
+        console.log(JSON.stringify({ id: generateId(), success: true, data: parsed }));
+      } else {
+        console.log(JSON.stringify(parsed, null, 2));
+      }
+      return;
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      if (options.json) {
+        console.log(JSON.stringify({ id: generateId(), success: false, error: errMsg }));
+      } else {
+        console.error(`[error] site ${name}: ${errMsg}`);
+      }
+      process.exit(1);
+    }
+  }
+
   // 执行
   const evalReq: Request = { id: generateId(), action: "eval", script, tabId: targetTabId };
   const evalResp: Response = await sendCommand(evalReq);
