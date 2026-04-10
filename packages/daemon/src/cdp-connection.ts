@@ -142,12 +142,21 @@ export class CdpConnection {
   }
 
   private async doConnect(): Promise<void> {
-    const versionData = (await fetchJson(
-      `http://${this.host}:${this.port}/json/version`,
-    )) as JsonObject;
-    const wsUrl = versionData.webSocketDebuggerUrl;
-    if (typeof wsUrl !== "string" || !wsUrl) {
-      throw new Error("CDP endpoint missing webSocketDebuggerUrl");
+    let wsUrl: string | undefined;
+    // 标准路径：通过 HTTP 发现端点获取 WebSocket URL
+    try {
+      const versionData = (await fetchJson(
+        `http://${this.host}:${this.port}/json/version`,
+      )) as JsonObject;
+      if (typeof versionData.webSocketDebuggerUrl === "string" && versionData.webSocketDebuggerUrl) {
+        wsUrl = versionData.webSocketDebuggerUrl;
+      }
+    } catch {
+      // Chrome 136+ 默认 profile 下 HTTP 发现端点可能返回 404
+    }
+    // Fallback：直接构造 WebSocket URL（Comet 等浏览器的 Remote Debugging 开关场景）
+    if (!wsUrl) {
+      wsUrl = `ws://${this.host}:${this.port}/devtools/browser`;
     }
 
     const ws = await connectWebSocket(wsUrl);
