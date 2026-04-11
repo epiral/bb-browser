@@ -126,6 +126,7 @@ wait
     }
   }
 }
+[bb-browser MCP] OpenClaw: set BB_MCP_URL=http://<your-local-ip>:13337/mcp BB_MCP_TOKEN=my-secret in ~/.openclaw/skills/bb-browser-remote/.env
 ```
 
 > `Ctrl+C` 优雅关闭 daemon 和 MCP Server，Edge 会继续在后台运行（下次启动更快）。
@@ -164,21 +165,34 @@ ipconfig getifaddr en1   # 有线（备用）
 
 ### 配置 OpenClaw
 
-把本机 IP 填入 OpenClaw 的 MCP 配置（`mcp.json` 或 IDE 设置）：
+OpenClaw 通过 [`bb-browser-remote`](skills/bb-browser-remote/SKILL.md) skill 的 Python 脚本调用 MCP HTTP 接口，不使用 `mcp.json`，通过**环境变量**或 `.env` 文件配置：
 
-```json
-{
-  "mcpServers": {
-    "bb-browser": {
-      "type": "http",
-      "url": "http://192.168.1.100:13337/mcp",
-      "headers": {
-        "Authorization": "Bearer my-secret"
-      }
-    }
-  }
-}
+**方式 1：环境变量（临时覆盖）**
+
+```bash
+BB_MCP_URL=http://192.168.1.100:13337/mcp \
+BB_MCP_TOKEN=my-secret \
+  python3 ~/.openclaw/skills/bb-browser-remote/scripts/call_mcp.py \
+  --tool browser_open --args '{"url":"https://x.com"}'
 ```
+
+**方式 2：`.env` 文件（推荐，持久生效）**
+
+在 `~/.openclaw/skills/bb-browser-remote/.env` 中写入：
+
+```bash
+BB_MCP_URL=http://192.168.1.100:13337/mcp
+BB_MCP_TOKEN=my-secret
+```
+
+之后直接调用脚本即可，无需每次带环境变量前缀：
+
+```bash
+python3 ~/.openclaw/skills/bb-browser-remote/scripts/call_mcp.py \
+  --tool browser_open --args '{"url":"https://x.com"}'
+```
+
+> 优先级：命令行参数 `--url/--token` > 环境变量 > `.env` 文件 > 脚本内默认值
 
 ---
 
@@ -219,117 +233,11 @@ data: {"result":{"content":[{"type":"text","text":"..."}]},"jsonrpc":"2.0","id":
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `--http` | 无（必须显式指定） | 启用 HTTP 模式 |
-| `--http-host` | `0.0.0.0` | 监听地址（`0.0.0.0` 表示所有网卡） |
+| `--http-host` | `127.0.0.1` | 监听地址（远程访问需显式指定 `0.0.0.0`） |
 | `--http-port` | `13337` | 监听端口 |
-| `--http-token` | 自动生成 32 字节随机值 | Bearer 认证 token |
+| `--http-token` | 自动生成 16 字节（32 位 hex）随机值 | Bearer 认证 token |
 
 > 不带 `--http` 时，仍然使用原有的 stdio 模式（用于 Claude Code / Cursor 本地配置）。
-
----
-
-## 网络安全
-
-### 防火墙（推荐）
-
-只允许 OpenClaw 服务器 IP 访问：
-
-```bash
-# macOS（用 pf 或应用层防火墙）
-# Linux
-sudo ufw allow from <openclaw-server-ip> to any port 13337
-```
-
-### 通过 SSH 隧道（最安全）
-
-不开放端口，改用 SSH 隧道转发：
-
-```bash
-# 在 OpenClaw 服务器上执行，将远端 13337 端口转发到本机
-ssh -R 13337:127.0.0.1:13337 user@openclaw-server
-
-# OpenClaw mcp.json 配置改为 localhost
-{
-  "mcpServers": {
-    "bb-browser": {
-      "type": "http",
-      "url": "http://127.0.0.1:13337/mcp",
-      "headers": { "Authorization": "Bearer ..." }
-    }
-  }
-}
-```
-
-### 通过 Tailscale（推荐，零配置）
-
-```bash
-# 本机和 OpenClaw 服务器都安装 Tailscale
-tailscale up
-
-# 获取本机 Tailscale IP
-tailscale ip -4   # 例如：100.64.1.10
-
-# OpenClaw mcp.json 配置
-{
-  "mcpServers": {
-    "bb-browser": {
-      "type": "http",
-      "url": "http://100.64.1.10:13337/mcp",
-      "headers": { "Authorization": "Bearer ..." }
-    }
-  }
-}
-```
-
----
-
-## 持久化运行
-
-### 方式 1：systemd（Linux 本机）
-
-```ini
-# /etc/systemd/system/bb-browser-mcp.service
-[Unit]
-Description=bb-browser MCP HTTP Server
-After=network.target
-
-[Service]
-Type=simple
-User=your-user
-ExecStart=/usr/local/bin/bb-browser --mcp --http \
-  --http-host 0.0.0.0 \
-  --http-port 13337 \
-  --http-token my-secret-token
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl enable bb-browser-mcp
-sudo systemctl start bb-browser-mcp
-```
-
-### 方式 2：pm2（跨平台）
-
-```bash
-pm2 start "bb-browser --mcp --http --http-host 0.0.0.0 --http-token mysecret" \
-  --name bb-browser-mcp
-
-pm2 save
-pm2 startup   # 设置开机自启
-```
-
-### 方式 3：一键启动脚本
-
-使用仓库根目录的 [`start-bb-browser.sh`](start-bb-browser.sh)：
-
-```bash
-chmod +x start-bb-browser.sh
-BB_MCP_TOKEN=my-secret-token ./start-bb-browser.sh
-```
-
-支持通过环境变量覆盖端口和 token（`BB_MCP_TOKEN`、`BB_MCP_PORT`、`BB_CHROME_PORT`）。
 
 ---
 
@@ -387,7 +295,7 @@ OpenClaw 连接后可调用的工具：
 | `Connection refused` | 本机 MCP Server 未启动 | 检查 `bb-browser --mcp --http` 进程是否在运行 |
 | `401 Unauthorized` | token 错误 | 核对 OpenClaw 配置中的 token 是否与启动时一致 |
 | `503 Service Unavailable` | Chrome 未连接到 Daemon | 检查 `bb-browser daemon` 和 Chrome 是否运行 |
-| `Network timeout` | 防火墙或网络不通 | 检查防火墙规则，或改用 SSH 隧道 / Tailscale |
+| `Network timeout` | 防火墙或网络不通 | 检查本机防火墙规则，确认 13337 端口对 OpenClaw 服务器可达 |
 | 工具调用返回 `Chrome is not connected` | Daemon 没有连上 Chrome | 重启 `bb-browser daemon` |
 
 ---
@@ -397,4 +305,4 @@ OpenClaw 连接后可调用的工具：
 - [`packages/mcp/src/index.ts`](packages/mcp/src/index.ts) — MCP 服务器实现
 - [`packages/cli/src/index.ts`](packages/cli/src/index.ts) — CLI 入口
 - [`packages/daemon/src/index.ts`](packages/daemon/src/index.ts) — Daemon 实现
-- [`skills/bb-browser-openclaw/SKILL.md`](skills/bb-browser-openclaw/SKILL.md) — OpenClaw 使用说明
+- [`skills/bb-browser-remote/SKILL.md`](skills/bb-browser-remote/SKILL.md) — 远程 MCP HTTP skill（OpenClaw 调用脚本和文档）

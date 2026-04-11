@@ -729,7 +729,7 @@ export async function startMcpServer() {
  *   bb-browser --mcp --http --http-host 0.0.0.0 --http-port 13337
  *   bb-browser --mcp --http --http-token mysecret
  *
- * Remote OpenClaw config (mcp.json):
+ * Remote MCP client (OpenClaw / Claude Code / Cursor) config (mcp.json):
  *   {
  *     "mcpServers": {
  *       "bb-browser": {
@@ -839,6 +839,7 @@ export async function startMcpHttpServer(options: {
       },
     },
   }, null, 2));
+  console.error(`[bb-browser MCP] OpenClaw: set BB_MCP_URL=http://<your-local-ip>:${port}/mcp${token ? ` BB_MCP_TOKEN=${token}` : ""} in ~/.openclaw/skills/bb-browser-remote/.env`);
 
   // Keep the process alive until SIGINT/SIGTERM
   await new Promise<void>((resolve) => {
@@ -860,7 +861,7 @@ function parseMcpArgs(): { http: boolean; host: string; port: number; token: str
     return idx !== -1 && args[idx + 1] ? args[idx + 1] : fallback;
   };
 
-  const host = getArg("--http-host", "0.0.0.0");
+  const host = getArg("--http-host", "127.0.0.1");
   const port = parseInt(getArg("--http-port", "13337"), 10);
   // Auto-generate a token if --http is used but --http-token is not provided
   const tokenArg = getArg("--http-token", "");
