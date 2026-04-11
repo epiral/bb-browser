@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { COMMAND_TIMEOUT, COMMANDS, generateId, readDaemonJson, DAEMON_DIR } from "@bb-browser/shared";
 import type { CommandDef, Request, Response, DaemonInfo } from "@bb-browser/shared";
 import { execFile, spawn } from "node:child_process";
@@ -8,6 +9,8 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import path from "node:path";
+import { createServer } from "node:http";
+import { randomBytes } from "node:crypto";
 import { z } from "zod";
 
 declare const __BB_BROWSER_VERSION__: string;
@@ -18,8 +21,6 @@ const CHROME_NOT_CONNECTED_HINT = [
   "Make sure Chrome is running and the daemon can connect to it via CDP.",
   "Run: bb-browser daemon --help for details.",
 ].join("\n");
-
-const sessionOpenedTabs = new Set<string>();
 
 let cachedDaemonInfo: DaemonInfo | null = null;
 
@@ -171,7 +172,7 @@ async function runCommand(request: Omit<Request, "id"> & Record<string, unknown>
 }
 
 // ---------------------------------------------------------------------------
-// Session tab tracking
+// Session tab tracking helpers (stateless — sessionOpenedTabs is per-server)
 // ---------------------------------------------------------------------------
 
 function normalizeTabId(tabId: string | number | undefined): string | undefined {
@@ -182,25 +183,6 @@ function normalizeTabId(tabId: string | number | undefined): string | undefined 
     return String(tabId);
   }
   return undefined;
-}
-
-function rememberSessionTab(tabId: string | number | undefined): void {
-  const normalizedTabId = normalizeTabId(tabId);
-  if (normalizedTabId) {
-    sessionOpenedTabs.add(normalizedTabId);
-  }
-}
-
-function forgetSessionTab(tabId: string | number | undefined): void {
-  const normalizedTabId = normalizeTabId(tabId);
-  if (normalizedTabId) {
-    sessionOpenedTabs.delete(normalizedTabId);
-  }
-}
-
-function rememberSessionTabFromResponse(data: Response["data"]): void {
-  if (!data) return;
-  rememberSessionTab((data as Response["data"] & { tabId?: string | number }).tabId);
 }
 
 // ---------------------------------------------------------------------------
@@ -294,12 +276,58 @@ async function runSiteCli(args: string[]): Promise<unknown> {
 }
 
 // ---------------------------------------------------------------------------
-// MCP Server
+// Build args→request mapping: remap "tab" → "tabId" for daemon protocol
 // ---------------------------------------------------------------------------
 
-const server = new McpServer(
-  { name: "bb-browser", version: __BB_BROWSER_VERSION__ },
-  { instructions: `bb-browser lets you control the user's real Chrome browser via CDP (Chrome DevTools Protocol).
+function buildRequest(cmd: CommandDef, args: Record<string, unknown>): Omit<Request, "id"> & Record<string, unknown> {
+  const { tab, ...rest } = args;
+  const request: Record<string, unknown> = { action: cmd.action, ...rest };
+  if (tab !== undefined) {
+    request.tabId = tab;
+  }
+  return request as Omit<Request, "id"> & Record<string, unknown>;
+}
+
+// ---------------------------------------------------------------------------
+// Commands that need special handling — keyed by command name
+// ---------------------------------------------------------------------------
+
+type ToolHandler = (args: Record<string, unknown>) => Promise<{
+  content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>;
+  isError?: boolean;
+}>;
+
+// ---------------------------------------------------------------------------
+// MCP Server factory — creates a new McpServer instance per HTTP session
+// (a single McpServer cannot be connected to multiple transports simultaneously)
+// ---------------------------------------------------------------------------
+
+function createMcpServer() {
+  // Per-session tab tracking (isolated per session)
+  const sessionOpenedTabs = new Set<string>();
+
+  function rememberSessionTab(tabId: string | number | undefined): void {
+    const normalizedTabId = normalizeTabId(tabId);
+    if (normalizedTabId) {
+      sessionOpenedTabs.add(normalizedTabId);
+    }
+  }
+
+  function forgetSessionTab(tabId: string | number | undefined): void {
+    const normalizedTabId = normalizeTabId(tabId);
+    if (normalizedTabId) {
+      sessionOpenedTabs.delete(normalizedTabId);
+    }
+  }
+
+  function rememberSessionTabFromResponse(data: Response["data"]): void {
+    if (!data) return;
+    rememberSessionTab((data as Response["data"] & { tabId?: string | number }).tabId);
+  }
+
+  const server = new McpServer(
+    { name: "bb-browser", version: __BB_BROWSER_VERSION__ },
+    { instructions: `bb-browser lets you control the user's real Chrome browser via CDP (Chrome DevTools Protocol).
 
 Your browser is the API. No headless browser, no cookie extraction, no anti-bot bypass.
 
@@ -327,32 +355,10 @@ Site adapters (pre-built commands for popular sites):
 - Available: reddit, twitter, github, hackernews, xiaohongshu, zhihu, bilibili, weibo, douban, youtube
 
 To create a new site adapter, run: bb-browser guide` },
-);
+  );
 
-// ---------------------------------------------------------------------------
-// Build args→request mapping: remap "tab" → "tabId" for daemon protocol
-// ---------------------------------------------------------------------------
-
-function buildRequest(cmd: CommandDef, args: Record<string, unknown>): Omit<Request, "id"> & Record<string, unknown> {
-  const { tab, ...rest } = args;
-  const request: Record<string, unknown> = { action: cmd.action, ...rest };
-  if (tab !== undefined) {
-    request.tabId = tab;
-  }
-  return request as Omit<Request, "id"> & Record<string, unknown>;
-}
-
-// ---------------------------------------------------------------------------
-// Commands that need special handling — keyed by command name
-// ---------------------------------------------------------------------------
-
-type ToolHandler = (args: Record<string, unknown>) => Promise<{
-  content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>;
-  isError?: boolean;
-}>;
-
-const specialHandlers: Record<string, (cmd: CommandDef) => ToolHandler> = {
-  snapshot: (cmd) => async (args) => {
+  const specialHandlers: Record<string, (cmd: CommandDef) => ToolHandler> = {
+    snapshot: (cmd) => async (args) => {
     const resp = await runCommand(buildRequest(cmd, args));
     if (!resp.success) return responseError(resp);
     return textResult(resp.data?.snapshotData?.snapshot || "(empty)");
@@ -698,16 +704,188 @@ server.tool(
 );
 
 // ---------------------------------------------------------------------------
-// Start
+// Start — stdio (default) or HTTP (--http mode for remote access)
 // ---------------------------------------------------------------------------
 
+  // Return the fully-configured server instance
+  return server;
+}
+
 export async function startMcpServer() {
+  const server = createMcpServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
 
-// 直接运行时自启动
-startMcpServer().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+/**
+ * Start MCP server over HTTP (Streamable HTTP transport).
+ *
+ * This allows remote clients (e.g. OpenClaw on a server without internet access)
+ * to connect to this MCP server over the network, while the local machine's
+ * Chrome browser and daemon handle the actual browsing.
+ *
+ * Usage:
+ *   bb-browser --mcp --http              # listen on 127.0.0.1:13337 (no auth)
+ *   bb-browser --mcp --http --http-host 0.0.0.0 --http-port 13337
+ *   bb-browser --mcp --http --http-token mysecret
+ *
+ * Remote MCP client (OpenClaw / Claude Code / Cursor) config (mcp.json):
+ *   {
+ *     "mcpServers": {
+ *       "bb-browser": {
+ *         "type": "http",
+ *         "url": "http://<your-local-ip>:13337/mcp",
+ *         "headers": { "Authorization": "Bearer mysecret" }
+ *       }
+ *     }
+ *   }
+ */
+export async function startMcpHttpServer(options: {
+  host: string;
+  port: number;
+  token?: string;
+}): Promise<void> {
+  const { host, port, token } = options;
+
+  // Session map: sessionId → transport (persists across multiple requests)
+  const sessions = new Map<string, StreamableHTTPServerTransport>();
+
+  const httpServer = createServer(async (req, res) => {
+    // CORS — allow remote clients to connect
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session-Id");
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    // Bearer token auth (optional)
+    if (token) {
+      const auth = req.headers.authorization ?? "";
+      if (auth !== `Bearer ${token}`) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Unauthorized" }));
+        return;
+      }
+    }
+
+    // Only handle /mcp endpoint
+    if (!req.url?.startsWith("/mcp")) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Not found. Use /mcp" }));
+      return;
+    }
+
+    const sessionId = req.headers["mcp-session-id"] as string | undefined;
+
+    let transport: StreamableHTTPServerTransport;
+
+    if (sessionId && sessions.has(sessionId)) {
+      // Reuse existing session transport
+      transport = sessions.get(sessionId)!;
+    } else if (!sessionId) {
+      // New session: create a fresh server + transport pair so each session
+      // gets its own McpServer instance (a single instance cannot be connected
+      // to multiple transports simultaneously).
+      transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomBytes(16).toString("hex"),
+        enableJsonResponse: true,
+        onsessioninitialized: (sid) => {
+          sessions.set(sid, transport);
+        },
+      });
+
+      transport.onclose = () => {
+        if (transport.sessionId) sessions.delete(transport.sessionId);
+      };
+
+      const sessionServer = createMcpServer();
+      sessionServer.connect(transport).catch((err: unknown) => {
+        console.error("[MCP HTTP] connect error:", err);
+      });
+    } else {
+      // Unknown session ID — client may have sent stale session
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Session not found or expired" }));
+      return;
+    }
+
+    transport.handleRequest(req, res).catch((err: unknown) => {
+      console.error("[MCP HTTP] handleRequest error:", err);
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Internal server error" }));
+      }
+    });
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    httpServer.on("error", reject);
+    httpServer.listen(port, host, () => resolve());
+  });
+
+  const displayToken = token ? ` (token: ${token})` : " (no auth)";
+  console.error(`[bb-browser MCP] HTTP server listening on http://${host}:${port}/mcp${displayToken}`);
+  console.error(`[bb-browser MCP] Claude Code / Cursor mcp.json config:`);
+  console.error(JSON.stringify({
+    mcpServers: {
+      "bb-browser": {
+        type: "http",
+        url: `http://<your-local-ip>:${port}/mcp`,
+        ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+      },
+    },
+  }, null, 2));
+  console.error(`[bb-browser MCP] OpenClaw: set BB_MCP_URL=http://<your-local-ip>:${port}/mcp${token ? ` BB_MCP_TOKEN=${token}` : ""} in ~/.openclaw/skills/bb-browser-remote/.env`);
+
+  // Keep the process alive until SIGINT/SIGTERM
+  await new Promise<void>((resolve) => {
+    process.on("SIGINT", () => { httpServer.close(); resolve(); });
+    process.on("SIGTERM", () => { httpServer.close(); resolve(); });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// CLI entrypoint — parse --http / --http-host / --http-port / --http-token
+// ---------------------------------------------------------------------------
+
+function parseMcpArgs(): { http: boolean; host: string; port: number; token: string } {
+  const args = process.argv.slice(2);
+  const http = args.includes("--http");
+
+  const getArg = (flag: string, fallback: string) => {
+    const idx = args.indexOf(flag);
+    return idx !== -1 && args[idx + 1] ? args[idx + 1] : fallback;
+  };
+
+  const host = getArg("--http-host", "127.0.0.1");
+  const port = parseInt(getArg("--http-port", "13337"), 10);
+  // Auto-generate a token if --http is used but --http-token is not provided
+  const tokenArg = getArg("--http-token", "");
+  const token = http ? (tokenArg || randomBytes(16).toString("hex")) : "";
+
+  return { http, host, port, token };
+}
+
+const mcpArgs = parseMcpArgs();
+
+if (mcpArgs.http) {
+  // HTTP mode: expose MCP over the network for remote clients
+  startMcpHttpServer({
+    host: mcpArgs.host,
+    port: mcpArgs.port,
+    token: mcpArgs.token,
+  }).catch((error: unknown) => {
+    console.error(error);
+    process.exit(1);
+  });
+} else {
+  // Default: stdio mode (local use with Claude Code / Cursor)
+  startMcpServer().catch((error: unknown) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
