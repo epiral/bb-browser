@@ -15,6 +15,16 @@ window.buildDomTree = (
 
   let highlightIndex = startHighlightIndex; // Reset highlight index
 
+  const HIGHLIGHT_CONTAINER_ID = 'playwright-highlight-container';
+
+  // Clean up highlights from previous snapshot invocations
+  const oldContainer = document.getElementById(HIGHLIGHT_CONTAINER_ID);
+  if (oldContainer) oldContainer.remove();
+  if (window._highlightCleanupFunctions) {
+    window._highlightCleanupFunctions.forEach(fn => fn());
+    window._highlightCleanupFunctions = [];
+  }
+
   // Add caching mechanisms at the top level
   const DOM_CACHE = {
     boundingRects: new WeakMap(),
@@ -98,8 +108,6 @@ window.buildDomTree = (
   const DOM_HASH_MAP = {};
 
   const ID = { current: startId };
-
-  const HIGHLIGHT_CONTAINER_ID = 'playwright-highlight-container';
 
   // Add a WeakMap cache for XPath strings
   const xpathCache = new WeakMap();
