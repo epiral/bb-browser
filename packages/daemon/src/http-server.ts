@@ -3,6 +3,7 @@
  *
  * Endpoints:
  *   POST /command   — receive Request, dispatch via CDP, return Response
+ *   POST /site      — proxy site adapter commands to CLI (list/run/info/recommend/update)
  *   GET  /status    — daemon health + per-tab stats
  *   POST /shutdown  — graceful shutdown
  *
@@ -12,10 +13,21 @@
  */
 
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
+import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Request } from "@bb-browser/shared";
 import { COMMAND_TIMEOUT, DAEMON_PORT } from "@bb-browser/shared";
 import { CdpConnection } from "./cdp-connection.js";
 import { dispatchRequest } from "./command-dispatch.js";
+
+function getCliPath(): string {
+  const currentDir = dirname(fileURLToPath(import.meta.url));
+  const sameDirPath = resolve(currentDir, "cli.js");
+  if (existsSync(sameDirPath)) return sameDirPath;
+  return resolve(currentDir, "../../cli/dist/index.js");
+}
 
 export interface HttpServerOptions {
   host?: string;
@@ -108,6 +120,8 @@ export class HttpServer {
 
     if (req.method === "POST" && url === "/command") {
       this.handleCommand(req, res);
+    } else if (req.method === "POST" && url === "/site") {
+      this.handleSite(req, res);
     } else if (req.method === "GET" && url === "/status") {
       this.handleStatus(req, res);
     } else if (req.method === "POST" && url === "/shutdown") {
@@ -188,6 +202,80 @@ export class HttpServer {
       currentTargetId: this.cdp.currentTargetId,
       tabs,
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // POST /site
+  // ---------------------------------------------------------------------------
+
+  private async handleSite(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    try {
+      const body = await this.readBody(req);
+      const params = JSON.parse(body) as Record<string, unknown>;
+
+      const command = params.command as string | undefined;
+      if (!command) {
+        this.sendJson(res, 400, { success: false, error: "Missing required field: command (list|run|info|recommend|update|search)" });
+        return;
+      }
+
+      // Build CLI args: bb-browser site <command> [name] [positional args] [--key value] [--json]
+      const cliArgs: string[] = [command];
+
+      // adapter name (site_run, site_info)
+      if (typeof params.name === "string") cliArgs.push(params.name);
+
+      // positional args array
+      if (Array.isArray(params.args)) {
+        for (const a of params.args) {
+          cliArgs.push(String(a));
+        }
+      }
+
+      // named args as --key value pairs
+      if (params.namedArgs && typeof params.namedArgs === "object") {
+        for (const [k, v] of Object.entries(params.namedArgs as Record<string, string>)) {
+          cliArgs.push(`--${k}`, String(v));
+        }
+      }
+
+      // search query
+      if (typeof params.query === "string") cliArgs.push(params.query);
+
+      // optional tab
+      if (typeof params.tab === "string") cliArgs.push("--tab", params.tab);
+
+      // days filter
+      if (typeof params.days === "number") cliArgs.push("--days", String(params.days));
+
+      cliArgs.push("--json");
+
+      const cliPath = getCliPath();
+      const result = await new Promise<{ ok: boolean; stdout: string; stderr: string }>((resolve) => {
+        execFile(
+          process.execPath,
+          [cliPath, "site", ...cliArgs],
+          { encoding: "utf8", timeout: COMMAND_TIMEOUT, maxBuffer: 10 * 1024 * 1024 },
+          (error, stdout, stderr) => resolve({ ok: !error, stdout: stdout ?? "", stderr: stderr ?? "" }),
+        );
+      });
+
+      // Try to parse JSON from stdout
+      let parsed: unknown = null;
+      try { parsed = JSON.parse(result.stdout.trim()); } catch { /* ignore */ }
+
+      if (!result.ok) {
+        const errObj = parsed && typeof parsed === "object" && "error" in (parsed as Record<string, unknown>)
+          ? parsed
+          : { error: result.stderr.trim() || result.stdout.trim() || "site command failed" };
+        this.sendJson(res, 200, { success: false, ...errObj as Record<string, unknown> });
+        return;
+      }
+
+      this.sendJson(res, 200, { success: true, data: parsed ?? result.stdout.trim() });
+    } catch (error) {
+      this.sendJson(res, 400, { success: false, error: error instanceof Error ? error.message : "Invalid request" });
+    }
   }
 
   // ---------------------------------------------------------------------------
