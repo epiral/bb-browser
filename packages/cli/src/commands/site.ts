@@ -59,6 +59,8 @@ interface SiteMeta {
   args: Record<string, ArgDef>;
   capabilities?: string[];
   readOnly?: boolean;
+  /** When true, the adapter runs in Node.js (no browser required, no CORS). */
+  nodeExec?: boolean;
   example?: string;
   filePath: string;
   source: "local" | "community";
@@ -113,6 +115,7 @@ function parseSiteMeta(filePath: string, source: "local" | "community"): SiteMet
         args: metaJson.args || {},
         capabilities: metaJson.capabilities,
         readOnly: metaJson.readOnly,
+        nodeExec: metaJson.nodeExec,
         example: metaJson.example,
         filePath,
         source,
@@ -648,6 +651,51 @@ async function siteRun(
       console.log(JSON.stringify({ id: "openclaw", success: true, data: parsed }));
     } else {
       console.log(JSON.stringify(parsed, null, 2));
+    }
+    return;
+  }
+
+  // Node.js execution path: no browser, no CORS, no timeout issues
+  if (site.nodeExec) {
+    let result: unknown;
+    try {
+      // Wrap the adapter function body and invoke it with args
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval
+      const fn = new Function(`return (${jsBody})`)() as (args: Record<string, unknown>) => Promise<unknown>;
+      result = await fn(argMap);
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      if (options.json) {
+        console.log(JSON.stringify({ success: false, error: errMsg }));
+      } else {
+        console.error(`[error] site ${name}: ${errMsg}`);
+      }
+      process.exit(1);
+    }
+
+    if (typeof result === "object" && result !== null && "error" in result) {
+      const errObj = result as { error: string; hint?: string; action?: string };
+      if (options.json) {
+        console.log(JSON.stringify({ success: false, ...errObj }));
+      } else {
+        console.error(`[error] site ${name}: ${errObj.error}`);
+        if (errObj.hint) console.error(`  提示: ${errObj.hint}`);
+        if (errObj.action) console.error(`  操作: ${errObj.action}`);
+      }
+      process.exit(1);
+    }
+
+    if (options.jq) {
+      const { applyJq } = await import("../jq.js");
+      const expr = options.jq.replace(/^\.data\./, ".");
+      const results = applyJq(result, expr);
+      for (const r of results) {
+        console.log(typeof r === "string" ? r : JSON.stringify(r));
+      }
+    } else if (options.json) {
+      console.log(JSON.stringify({ success: true, data: result }));
+    } else {
+      console.log(JSON.stringify(result, null, 2));
     }
     return;
   }
