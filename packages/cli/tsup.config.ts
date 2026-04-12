@@ -10,7 +10,8 @@ export default defineConfig({
   banner: {
     js: "#!/usr/bin/env node",
   },
-  // ws 使用 Node.js 内置模块，需要标记为外部依赖
-  external: ["ws"],
+  // Node.js built-in modules must be external so they are imported as ESM,
+  // not bundled via __require() which fails in ESM context.
+  external: ["ws", "node:fs", "fs", "node:path", "path", "node:os", "os", "node:child_process", "child_process"],
   noExternal: [],
 });

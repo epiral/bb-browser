@@ -1,9 +1,79 @@
 import { execFile, execSync, spawn } from "node:child_process";
-import { existsSync, lstatSync, readlinkSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readlinkSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parseOpenClawJson } from "./openclaw-json.js";
+
+/**
+ * Read the CDP port from a DevToolsActivePort file.
+ * The file contains two lines: port number on line 1, optional ws path on line 2.
+ * Returns null if the file does not exist or is malformed.
+ */
+function readDevToolsActivePortFile(userDataDir: string): number | null {
+  const filePath = path.join(userDataDir, "DevToolsActivePort");
+  try {
+    const content = readFileSync(filePath, "utf8");
+    const port = Number.parseInt(content.split("\n")[0].trim(), 10);
+    if (Number.isInteger(port) && port > 0) return port;
+  } catch {}
+  return null;
+}
+
+/**
+ * Scan all known browser user-data directories for a DevToolsActivePort file.
+ * Returns the first reachable CDP endpoint found, or null.
+ */
+async function discoverViaDevToolsActivePort(): Promise<{ host: string; port: number } | null> {
+  const home = os.homedir();
+  const candidates: string[] = [];
+
+  if (process.platform === "darwin") {
+    const appSupport = path.join(home, "Library", "Application Support");
+    candidates.push(
+      path.join(appSupport, "Microsoft Edge"),
+      path.join(appSupport, "Google", "Chrome"),
+      path.join(appSupport, "BraveSoftware", "Brave-Browser"),
+      path.join(appSupport, "Chromium"),
+      path.join(appSupport, "Arc"),
+      path.join(appSupport, "com.operasoftware.Opera"),
+      path.join(appSupport, "Vivaldi"),
+    );
+  } else if (process.platform === "linux") {
+    const configHome = process.env.XDG_CONFIG_HOME ?? path.join(home, ".config");
+    candidates.push(
+      path.join(configHome, "microsoft-edge"),
+      path.join(configHome, "google-chrome"),
+      path.join(configHome, "chromium"),
+      path.join(configHome, "BraveSoftware", "Brave-Browser"),
+      path.join(configHome, "opera"),
+      path.join(configHome, "vivaldi"),
+    );
+  } else if (process.platform === "win32") {
+    const localAppData = process.env.LOCALAPPDATA ?? "";
+    const appData = process.env.APPDATA ?? "";
+    if (localAppData) {
+      candidates.push(
+        path.join(localAppData, "Microsoft", "Edge", "User Data"),
+        path.join(localAppData, "Google", "Chrome", "User Data"),
+        path.join(localAppData, "BraveSoftware", "Brave-Browser", "User Data"),
+        path.join(localAppData, "Chromium", "User Data"),
+        path.join(localAppData, "Vivaldi", "User Data"),
+      );
+    }
+    if (appData) {
+      candidates.push(path.join(appData, "Opera Software", "Opera Stable"));
+    }
+  }
+
+  for (const dir of candidates) {
+    const port = readDevToolsActivePortFile(dir);
+    if (port !== null && await canConnect("127.0.0.1", port)) {
+      return { host: "127.0.0.1", port };
+    }
+  }
+  return null;
+}
 
 // Chromium-based browser identifiers for detection
 const CHROMIUM_BUNDLE_IDS = [
@@ -140,7 +210,7 @@ function getDefaultBrowserLinux(): { executable: string; isChromium: boolean } |
       const desktopPath = path.join(dir, desktopFile);
       if (existsSync(desktopPath)) {
         try {
-          const content = require("node:fs").readFileSync(desktopPath, "utf8") as string;
+          const content = readFileSync(desktopPath, "utf8");
           const match = content.match(/^Exec=(.+?)(?:\s+%[uUfF])?$/m);
           if (match) {
             execLine = match[1].trim();
@@ -513,6 +583,15 @@ export async function launchManagedBrowser(port: number = DEFAULT_CDP_PORT): Pro
 
   if (realUserDataDir && existsSync(realUserDataDir)) {
     if (isRealBrowserRunning(realUserDataDir)) {
+      // Check if the running browser already has CDP enabled (DevToolsActivePort exists)
+      const existingPort = readDevToolsActivePortFile(realUserDataDir);
+      if (existingPort !== null && await canConnect("127.0.0.1", existingPort)) {
+        // Browser is already running with CDP — reuse it directly, no restart needed
+        await mkdir(MANAGED_BROWSER_DIR, { recursive: true });
+        await writeFile(MANAGED_PORT_FILE, String(existingPort), "utf8");
+        return { host: "127.0.0.1", port: existingPort };
+      }
+
       // Real browser is running without CDP — restart it with CDP enabled
       console.error("[bb-browser] 检测到浏览器正在运行，正在重启以启用调试模式（历史记录/书签/密码将保留）...");
       const stopped = await quitRealBrowser(realUserDataDir, executable);
@@ -632,13 +711,22 @@ export async function discoverCdpPort(): Promise<{ host: string; port: number } 
     }
   }
 
-  // 优先级5: 自动启动浏览器
+  // 优先级5: DevToolsActivePort 文件自动发现
+  // 当用户在 chrome://inspect 或 edge://inspect 中开启了远程调试后，
+  // 浏览器会将动态分配的 CDP 端口写入 DevToolsActivePort 文件。
+  // 这样无需重启浏览器即可直接连接。
+  const viaActivePort = await discoverViaDevToolsActivePort();
+  if (viaActivePort) {
+    return viaActivePort;
+  }
+
+  // 优先级6: 自动启动浏览器
   const launched = await launchManagedBrowser();
   if (launched) {
     return launched;
   }
 
-  // 优先级6: 自动检测 OpenClaw（不带 --openclaw 参数时）
+  // 优先级7: 自动检测 OpenClaw（不带 --openclaw 参数时）
   if (!process.argv.includes("--openclaw")) {
     const detectedOpenClaw = await tryOpenClaw();
     if (detectedOpenClaw && await canConnect(detectedOpenClaw.host, detectedOpenClaw.port)) {
