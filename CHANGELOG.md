@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.4](https://github.com/epiral/bb-browser/compare/bb-browser-v0.11.3...bb-browser-v0.11.4) (2026-04-19)
+
+
+### Bug Fixes
+
+* **provider:** preserve large integer precision in decodeInput ([561c002](https://github.com/epiral/bb-browser/commit/561c00261981546d2e662329eb1343d072f80ea5))
+
 ## [0.11.3](https://github.com/epiral/bb-browser/compare/bb-browser-v0.11.2...bb-browser-v0.11.3) (2026-04-09)
 
 
