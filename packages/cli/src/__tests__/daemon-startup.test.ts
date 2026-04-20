@@ -313,20 +313,22 @@ describe("core bug: daemon spawned without --cdp-port fails silently (#136)", ()
     cleanupDaemonJson();
   });
 
-  it("daemon with default port 19825 and nothing listening → exits, no daemon.json", async () => {
-    // This is exactly what ensureDaemon() does: spawn daemon with NO args
-    // Default --cdp-port is 19825, nothing listening there → daemon exits
-    const child = spawn(TSX, [DAEMON_ENTRY], {
+  it("daemon with explicit unusable port and nothing listening → exits, no daemon.json", async () => {
+    // Spawn daemon with a port guaranteed to have nothing listening.
+    // discoverCdpPort will also check the managed port file, but beforeEach
+    // already cleaned it, so daemon must exit with code 1.
+    const unusedPort = 39997;
+    const child = spawn(TSX, [DAEMON_ENTRY, "--cdp-port", String(unusedPort)], {
       detached: true,
       stdio: "ignore",
-      env: { ...process.env, BB_BROWSER_CDP_URL: undefined },
+      env: { ...process.env },
     });
     child.unref();
 
     // daemon should exit within 3 seconds, daemon.json never appears
     await new Promise(r => setTimeout(r, 3000));
     assert.equal(readDaemonJson(), null,
-      "BUG CONFIRMED: daemon exits without daemon.json when spawned with no args and no Chrome on default port");
+      "daemon should exit without daemon.json when no CDP is reachable");
   });
 
   it("daemon with explicit --cdp-port pointing to fake CDP → starts successfully", async () => {
