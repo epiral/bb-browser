@@ -192,3 +192,7 @@ bb-browser CLI ──HTTP──▶ Daemon ──CDP WebSocket──▶ Your Real
 ## License
 
 [MIT](LICENSE)
+
+## Download History
+
+[![Download History](https://skill-history.com/chart/yan5xu/bb-browser.svg)](https://skill-history.com/yan5xu/bb-browser)
