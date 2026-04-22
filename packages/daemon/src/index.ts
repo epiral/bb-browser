@@ -143,42 +143,20 @@ function cleanupDaemonJson(): void {
 // ---------------------------------------------------------------------------
 
 async function discoverCdpPort(host: string, port: number): Promise<{ host: string; port: number }> {
-  // Try connecting to the specified port first
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 2000);
-    try {
-      const response = await fetch(`http://${host}:${port}/json/version`, {
-        signal: controller.signal,
-      });
-      if (response.ok) {
-        return { host, port };
-      }
-    } finally {
-      clearTimeout(timer);
-    }
-  } catch {}
+  // 尝试连接指定端口——先 HTTP 发现，再 fallback WebSocket
+  if (await canConnectCdp(host, port)) {
+    return { host, port };
+  }
 
-  // Try reading managed browser port file
+  // 尝试读取 managed browser port file
   const managedPortFile = path.join(DAEMON_DIR, "browser", "cdp-port");
   try {
     const rawPort = readFileSync(managedPortFile, "utf8").trim();
     const managedPort = parseInt(rawPort, 10);
     if (Number.isInteger(managedPort) && managedPort > 0) {
-      try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 2000);
-        try {
-          const response = await fetch(`http://127.0.0.1:${managedPort}/json/version`, {
-            signal: controller.signal,
-          });
-          if (response.ok) {
-            return { host: "127.0.0.1", port: managedPort };
-          }
-        } finally {
-          clearTimeout(timer);
-        }
-      } catch {}
+      if (await canConnectCdp("127.0.0.1", managedPort)) {
+        return { host: "127.0.0.1", port: managedPort };
+      }
     }
   } catch {}
 
@@ -186,6 +164,39 @@ async function discoverCdpPort(host: string, port: number): Promise<{ host: stri
     `Cannot connect to Chrome CDP at ${host}:${port}. ` +
     `Make sure Chrome is running with --remote-debugging-port=${port}`,
   );
+}
+
+/**
+ * 检测 CDP 端口是否可用。
+ * 优先 HTTP /json/version（标准 CDP 发现），失败后 fallback 到 WebSocket 直连。
+ * Chrome 136+ 默认 profile 下 HTTP 端点可能返回 404，但 WebSocket 仍可用。
+ */
+async function canConnectCdp(host: string, port: number): Promise<boolean> {
+  // 1. 尝试 HTTP 发现端点
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2000);
+    try {
+      const response = await fetch(`http://${host}:${port}/json/version`, {
+        signal: controller.signal,
+      });
+      if (response.ok) return true;
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {}
+  // 2. Fallback: TCP 端口检测（不触发浏览器 CDP 权限弹框）
+  try {
+    const { connect } = await import("node:net");
+    return await new Promise<boolean>((resolve) => {
+      const sock = connect(port, host);
+      const timer = setTimeout(() => { sock.destroy(); resolve(false); }, 2000);
+      sock.once("connect", () => { clearTimeout(timer); sock.destroy(); resolve(true); });
+      sock.once("error", () => { clearTimeout(timer); resolve(false); });
+    });
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
