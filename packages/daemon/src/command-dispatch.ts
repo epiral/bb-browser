@@ -622,10 +622,24 @@ export async function dispatchRequest(
     // -----------------------------------------------------------------------
     case "click":
     case "hover": {
-      if (!request.ref) return fail(request.id, "Missing ref parameter");
       const seq = tab.recordAction();
-      const backendNodeId = await parseRef(cdp, target.id, tab, request.ref);
-      const point = await getInteractablePoint(cdp, target.id, backendNodeId);
+      let point: { x: number; y: number };
+
+      if (request.x != null && request.y != null) {
+        point = { x: request.x, y: request.y };
+      } else if (request.selector) {
+        const doc = await cdp.sessionCommand<{ root: { nodeId: number } }>(target.id, "DOM.getDocument", {});
+        const node = await cdp.sessionCommand<{ nodeId: number }>(target.id, "DOM.querySelector", { nodeId: doc.root.nodeId, selector: request.selector });
+        if (!node.nodeId) return fail(request.id, `找不到元素: ${request.selector}`);
+        const desc = await cdp.sessionCommand<{ node: { backendNodeId: number } }>(target.id, "DOM.describeNode", { nodeId: node.nodeId });
+        point = await getInteractablePoint(cdp, target.id, desc.node.backendNodeId);
+      } else if (request.ref) {
+        const backendNodeId = await parseRef(cdp, target.id, tab, request.ref);
+        point = await getInteractablePoint(cdp, target.id, backendNodeId);
+      } else {
+        return fail(request.id, "Missing ref, selector, or coordinates");
+      }
+
       await cdp.sessionCommand(target.id, "Input.dispatchMouseEvent", {
         type: "mouseMoved", x: point.x, y: point.y, button: "none",
       });
