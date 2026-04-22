@@ -4,7 +4,8 @@
  * 用法：
  *   bb-browser open <url>                # 在新 tab 中打开
  *   bb-browser open <url> --tab current  # 在当前 tab 中打开
- *   bb-browser open <url> --tab 123      # 在指定 tabId 的 tab 中打开
+ *   bb-browser open <url> --tab 123      # 在指定数字 tab 索引中打开
+ *   bb-browser open <url> --tab c416     # 在指定短 tab ID 中打开
  */
 
 import { generateId, type Request, type Response } from "@bb-browser/shared";
@@ -14,7 +15,7 @@ import { getSiteHintForDomain } from "./site.js";
 
 export interface OpenOptions {
   json?: boolean;
-  tab?: string;  // "current" | tabId 数字字符串 | undefined（新建 tab）
+  tab?: string;  // "current" | short tab ID | numeric index string | undefined（新建 tab）
 }
 
 export async function openCommand(
@@ -48,12 +49,11 @@ export async function openCommand(
       // 使用当前活动 tab
       (request as Record<string, unknown>).tabId = "current";
     } else {
-      // 使用指定 tabId
-      const tabId = parseInt(options.tab, 10);
-      if (isNaN(tabId)) {
-        throw new Error(`无效的 tabId: ${options.tab}`);
-      }
-      (request as Record<string, unknown>).tabId = tabId;
+      // 使用指定 short tab ID 或数字索引
+      const tabRef = /^\d+$/.test(options.tab)
+        ? parseInt(options.tab, 10)
+        : options.tab;
+      (request as Record<string, unknown>).tabId = tabRef;
     }
   }
   // 不指定 --tab 时，tabId 为 undefined，扩展会创建新 tab
