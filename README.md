@@ -172,6 +172,52 @@ bb-browser daemon --host 127.0.0.1    # IPv4 only (fix macOS IPv6 issues)
 bb-browser daemon --host 0.0.0.0      # listen on all interfaces (for Tailscale / ZeroTier remote access)
 ```
 
+## Cross-machine CDP (WSL2 ↔ Windows host)
+
+Some sites refuse to load in a fresh chromium (anti-bot, UA-based redirect loops) or require an existing logged-in session that lives in a different browser on a different machine. You can point `bb-browser` at any reachable Chrome by combining `--cdp-host` / `--cdp-port` with `BB_BROWSER_HOME` for daemon isolation.
+
+### Example: drive Windows-host Chrome from WSL2
+
+**On Windows.** Launch Chrome with remote debugging:
+
+```cmd
+"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222
+```
+
+Chrome 111+ silently ignores `--remote-debugging-address=0.0.0.0` and force-binds CDP to `127.0.0.1`. Forward to a LAN-reachable port via portproxy (PowerShell as Administrator):
+
+```powershell
+netsh interface portproxy add v4tov4 `
+  listenaddress=0.0.0.0 listenport=9223 `
+  connectaddress=127.0.0.1 connectport=9222
+
+New-NetFirewallRule -DisplayName "WSL CDP 9223" `
+  -Direction Inbound -LocalPort 9223 -Protocol TCP `
+  -Action Allow -RemoteAddress 172.16.0.0/12
+```
+
+> ⚠️ Anyone reachable on the listen address can drive your Chrome. Restrict `-RemoteAddress` to the WSL2 subnet (or your VPN).
+
+**In WSL2.** Run a second daemon on a different HTTP port, isolated by `BB_BROWSER_HOME` so it doesn't collide with any local daemon:
+
+```bash
+WIN_HOST=$(ip route show default | awk '{print $3}')
+export BB_BROWSER_HOME=~/.bb-browser-windows
+bb-browser daemon --port 19834 --cdp-host "$WIN_HOST" --cdp-port 9223
+```
+
+From any other shell, point `BB_BROWSER_HOME` to choose which Chrome you talk to:
+
+```bash
+# default daemon → local chromium
+bb-browser tab list
+
+# Windows-host Chrome
+BB_BROWSER_HOME=~/.bb-browser-windows bb-browser tab list
+```
+
+The two daemons can run side-by-side. WSL2's host IP can change across restarts; re-detect with `ip route show default` and re-launch the second daemon.
+
 ## Architecture
 
 ```
