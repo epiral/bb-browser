@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/epiral-bb-browser-badge.png)](https://mseep.ai/app/epiral-bb-browser)
+
 <div align="center">
 
 # bb-browser
