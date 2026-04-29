@@ -8,6 +8,7 @@
 import { generateId, type Request, type Response } from "@bb-browser/shared";
 import { sendCommand } from "../client.js";
 import { ensureDaemonRunning } from "../daemon-manager.js";
+import { formatLocatorOutput, parseLocatorInput } from "../locator.js";
 
 export interface WaitOptions {
   json?: boolean;
@@ -19,13 +20,6 @@ export interface WaitOptions {
  */
 function isTimeWait(target: string): boolean {
   return /^\d+$/.test(target);
-}
-
-/**
- * 解析 ref 参数，支持 "@5" 或 "5" 格式
- */
-function parseRef(ref: string): string {
-  return ref.startsWith("@") ? ref.slice(1) : ref;
 }
 
 export async function waitCommand(
@@ -53,7 +47,7 @@ export async function waitCommand(
     };
   } else {
     // 等待元素模式
-    const ref = parseRef(target);
+    const ref = parseLocatorInput(target);
     request = {
       id: generateId(),
       action: "wait",
@@ -74,7 +68,7 @@ export async function waitCommand(
       if (isTimeWait(target)) {
         console.log(`已等待 ${target}ms`);
       } else {
-        console.log(`元素 @${parseRef(target)} 已出现`);
+        console.log(`元素 ${formatLocatorOutput(target)} 已出现`);
       }
     } else {
       console.error(`错误: ${response.error}`);

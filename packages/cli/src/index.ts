@@ -30,6 +30,14 @@ import { fetchCommand } from "./commands/fetch.js";
 import { siteCommand } from "./commands/site.js";
 import { historyCommand } from "./commands/history.js";
 import { shutdownCommand, statusCommand } from "./commands/daemon.js";
+import {
+  tagGetCommand,
+  tagListCommand,
+  tagMatchCommand,
+  tagRemoveCommand,
+  tagResolveCommand,
+  tagSetCommand,
+} from "./commands/tag.js";
 import { getDaemonPath } from "./daemon-manager.js";
 import { setJqExpression } from "./client.js";
 
@@ -56,6 +64,12 @@ bb-browser - AI Agent 浏览器自动化工具
   site list                    列出所有 adapter
   site info <name>             查看 adapter 用法（参数、返回值、示例）
   site <name> [args]           运行 adapter
+  tag set <name> <ref>         保存稳定 tag，后续可用 @@name 操作
+  tag get <name>               查看当前域名下某个 tag
+  tag list                     查看当前域名已保存的 tag
+  tag resolve <name>           预览 tag 当前命中的元素
+  tag match <name>             高亮匹配的 tag，便于肉眼确认
+  tag remove <name>            删除当前域名下某个 tag
   site update                  更新社区 adapter 库
   guide                        如何把任何网站变成 adapter
   star                         ⭐ Star bb-browser on GitHub
@@ -63,17 +77,17 @@ bb-browser - AI Agent 浏览器自动化工具
 浏览器操作：
   open <url> [--tab]           打开 URL
   snapshot [-i] [-c] [-d <n>]  获取页面快照
-  click <ref>                  点击元素
-  hover <ref>                  悬停元素
-  fill <ref> <text>            填充输入框（清空后填入）
-  type <ref> <text>            逐字符输入（不清空）
-  check/uncheck <ref>          勾选/取消复选框
-  select <ref> <val>           下拉框选择
+  click <ref>                  点击元素（支持 @ref / @@tag）
+  hover <ref>                  悬停元素（支持 @ref / @@tag）
+  fill <ref> <text>            填充输入框（支持 @ref / @@tag）
+  type <ref> <text>            逐字符输入（支持 @ref / @@tag）
+  check/uncheck <ref>          勾选/取消复选框（支持 @ref / @@tag）
+  select <ref> <val>           下拉框选择（支持 @ref / @@tag）
   press <key>                  发送按键
   scroll <dir> [px]            滚动页面
 
 页面信息：
-  get text|url|title <ref>     获取页面内容
+  get text|url|title <ref>     获取页面内容（text 支持 @ref / @@tag）
   screenshot [path]            截图
   eval "<js>"                  执行 JavaScript
   fetch <url>                  带登录态的 HTTP 请求
@@ -125,6 +139,7 @@ interface ParsedArgs {
     openclaw?: boolean;
     port?: number;
     since?: string;
+    list?: boolean;
   };
 }
 
@@ -171,6 +186,8 @@ function parseArgs(argv: string[]): ParsedArgs {
       }
     } else if (arg === "--help" || arg === "-h") {
       result.flags.help = true;
+    } else if (arg === "--list") {
+      result.flags.list = true;
     } else if (arg === "--version" || arg === "-v") {
       result.flags.version = true;
     } else if (arg === "--interactive" || arg === "-i") {
@@ -487,13 +504,72 @@ async function main(): Promise<void> {
         const target = parsed.args[0];
         if (!target) {
           console.error("错误：缺少等待目标参数");
-          console.error("用法：bb-browser wait <ms|@ref>");
+          console.error("用法：bb-browser wait <ms|@ref|@@tag>");
           console.error("示例：bb-browser wait 2000");
           console.error("      bb-browser wait @5");
+          console.error("      bb-browser wait @@searchBox");
           process.exit(1);
         }
         await waitCommand(target, { json: parsed.flags.json, tabId: globalTabId });
         break;
+      }
+
+      case "tag": {
+        const subCmd = parsed.args[0];
+        if (!subCmd) {
+          console.error("错误：缺少子命令");
+          console.error("用法：bb-browser tag <set|get|list|resolve|match|remove|update> ...");
+          process.exit(1);
+        }
+        if (subCmd === "list") {
+          await tagListCommand({ json: parsed.flags.json, tabId: globalTabId });
+          break;
+        }
+        if (subCmd === "match") {
+          const locator = parsed.args[1];
+          if (!locator) {
+            console.error("错误：缺少 tag 名称");
+            console.error("用法：bb-browser tag match <name|name[index]>");
+            console.error("示例：bb-browser tag match searchBox");
+            console.error("      bb-browser tag match resultItems[0]");
+            process.exit(1);
+          }
+          await tagMatchCommand(locator, { json: parsed.flags.json, tabId: globalTabId });
+          break;
+        }
+        if (subCmd === "get" || subCmd === "remove" || subCmd === "resolve") {
+          const tagName = parsed.args[1];
+          if (!tagName) {
+            console.error("错误：缺少 tag 名称");
+            process.exit(1);
+          }
+          if (subCmd === "get") {
+            await tagGetCommand(tagName, { json: parsed.flags.json, tabId: globalTabId });
+          } else if (subCmd === "remove") {
+            await tagRemoveCommand(tagName, { json: parsed.flags.json, tabId: globalTabId });
+          } else {
+            await tagResolveCommand(tagName, { json: parsed.flags.json, tabId: globalTabId });
+          }
+          break;
+        }
+        if (subCmd === "set" || subCmd === "update") {
+          const tagName = parsed.args[1];
+          const ref = parsed.args[2];
+          if (!tagName || !ref) {
+            console.error("错误：缺少参数");
+            console.error("用法：bb-browser tag set <name> <@ref> [--list]");
+            console.error("示例：bb-browser tag set searchBox @5");
+            console.error("      bb-browser tag set resultItems @8 --list");
+            process.exit(1);
+          }
+          await tagSetCommand(tagName, ref, parsed.flags.list ? "list" : "single", {
+            json: parsed.flags.json,
+            tabId: globalTabId,
+          });
+          break;
+        }
+        console.error(`错误：未知 tag 子命令 "${subCmd}"`);
+        process.exit(1);
       }
 
       case "press": {

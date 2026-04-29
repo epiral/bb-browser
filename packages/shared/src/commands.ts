@@ -130,6 +130,16 @@ export const COMMANDS: CommandDef[] = [
     }),
   },
   {
+    name: "match",
+    action: "match",
+    description: "Highlight a matched element briefly so you can visually verify the locator",
+    category: "interact",
+    args: z.object({
+      ref: z.string().describe("Element ref from snapshot or persistent @@tag"),
+      tab: z.string().optional().describe("Tab short ID"),
+    }),
+  },
+  {
     name: "hover",
     action: "hover",
     description: "Hover over an element by ref number from snapshot",
@@ -220,6 +230,57 @@ export const COMMANDS: CommandDef[] = [
     category: "interact",
     args: z.object({
       script: z.string().describe("JavaScript source to execute"),
+      tab: z.string().optional().describe("Tab short ID"),
+    }),
+  },
+  {
+    name: "tag_set",
+    action: "tag_set",
+    description: "Persist a stable tag from a snapshot ref for the current domain",
+    category: "system",
+    args: z.object({
+      tagName: z.string().describe("Stable tag name without the # prefix"),
+      ref: z.string().describe("Element ref from snapshot"),
+      tagMode: z.enum(["single", "list"]).default("single").describe("Whether this tag should resolve to one element or a DOM-ordered list"),
+      tab: z.string().optional().describe("Tab short ID"),
+    }),
+  },
+  {
+    name: "tag_get",
+    action: "tag_get",
+    description: "Get stored tag metadata for the current domain",
+    category: "system",
+    args: z.object({
+      tagName: z.string().describe("Stable tag name without the # prefix"),
+      tab: z.string().optional().describe("Tab short ID"),
+    }),
+  },
+  {
+    name: "tag_list",
+    action: "tag_list",
+    description: "List stored tags for the current domain",
+    category: "system",
+    args: z.object({
+      tab: z.string().optional().describe("Tab short ID"),
+    }),
+  },
+  {
+    name: "tag_remove",
+    action: "tag_remove",
+    description: "Delete a stored tag for the current domain",
+    category: "system",
+    args: z.object({
+      tagName: z.string().describe("Stable tag name without the # prefix"),
+      tab: z.string().optional().describe("Tab short ID"),
+    }),
+  },
+  {
+    name: "tag_resolve",
+    action: "tag_resolve",
+    description: "Resolve a stored tag against the current page and preview its matches",
+    category: "system",
+    args: z.object({
+      tagName: z.string().describe("Stable tag name without the # prefix"),
       tab: z.string().optional().describe("Tab short ID"),
     }),
   },

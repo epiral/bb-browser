@@ -9,18 +9,11 @@
 import { generateId, type Request, type Response } from "@bb-browser/shared";
 import { sendCommand } from "../client.js";
 import { ensureDaemonRunning } from "../daemon-manager.js";
+import { parseLocatorInput } from "../locator.js";
 
 export interface HoverOptions {
   json?: boolean;
   tabId?: string | number;
-}
-
-/**
- * 解析 ref 参数，支持 "@5" 或 "5" 格式
- */
-function parseRef(ref: string): string {
-  // 移除 @ 前缀（如果有）
-  return ref.startsWith("@") ? ref.slice(1) : ref;
 }
 
 export async function hoverCommand(
@@ -36,7 +29,7 @@ export async function hoverCommand(
   await ensureDaemonRunning();
 
   // 解析 ref
-  const parsedRef = parseRef(ref);
+  const parsedRef = parseLocatorInput(ref);
 
   // 构造请求
   const request: Request = {
