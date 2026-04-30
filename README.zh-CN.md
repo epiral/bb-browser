@@ -132,7 +132,7 @@ bb-browser guide    # 完整教程
 # 跨平台调研任何话题
 bb-browser site arxiv/search "retrieval augmented generation"
 bb-browser site twitter/search "RAG"
-bb-browser site github search rag-framework
+bb-browser site github/search rag-framework
 bb-browser site stackoverflow/search "RAG implementation"
 bb-browser site zhihu/search "RAG"
 bb-browser site 36kr/newsflash
