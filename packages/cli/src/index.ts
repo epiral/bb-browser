@@ -32,6 +32,7 @@ import { historyCommand } from "./commands/history.js";
 import { shutdownCommand, statusCommand } from "./commands/daemon.js";
 import { getDaemonPath } from "./daemon-manager.js";
 import { setJqExpression } from "./client.js";
+import { shouldExitAfterMain } from "./lifecycle.js";
 
 declare const __BB_BROWSER_VERSION__: string;
 
@@ -771,4 +772,8 @@ Full guide:        https://github.com/epiral/bb-sites/blob/main/SKILL.md`);
   }
 }
 
-main().then(() => process.exit(0));
+main().then(() => {
+  if (shouldExitAfterMain()) {
+    process.exit(0);
+  }
+});
