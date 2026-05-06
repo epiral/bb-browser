@@ -29,7 +29,7 @@ import { traceCommand } from "./commands/trace.js";
 import { fetchCommand } from "./commands/fetch.js";
 import { siteCommand } from "./commands/site.js";
 import { historyCommand } from "./commands/history.js";
-import { shutdownCommand, statusCommand } from "./commands/daemon.js";
+import { shutdownCommand, startCommand, statusCommand } from "./commands/daemon.js";
 import { getDaemonPath } from "./daemon-manager.js";
 import { setJqExpression } from "./client.js";
 
@@ -91,7 +91,7 @@ bb-browser - AI Agent 浏览器自动化工具
   errors [--clear]             查看/清空 JS 错误
   trace start|stop|status      录制用户操作
   history search|domains       查看浏览历史
-  daemon [status|stop] [opts]  前台运行或管理 daemon
+  daemon [start|status|stop]   管理 daemon（start: 后台启动）
 
 选项：
   --json               以 JSON 格式输出
@@ -438,6 +438,10 @@ async function main(): Promise<void> {
         }
         if (daemonSubcommand === "stop" || daemonSubcommand === "shutdown") {
           await shutdownCommand({ json: parsed.flags.json });
+          break;
+        }
+        if (daemonSubcommand === "start") {
+          await startCommand({ json: parsed.flags.json });
           break;
         }
 
