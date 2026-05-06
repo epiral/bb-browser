@@ -59,14 +59,15 @@ export function getDaemonPath(): string {
  */
 export async function ensureDaemon(): Promise<void> {
   if (daemonReady && cachedInfo) {
-    // Quick re-check: is it still alive?
+    // Quick re-check: is it still alive and CDP connected?
     try {
-      await httpJson<{ running: boolean }>("GET", "/status", cachedInfo, undefined, 2000);
-      return;
-    } catch {
-      daemonReady = false;
-      cachedInfo = null;
-    }
+      const status = await httpJson<{ running?: boolean; cdpConnected?: boolean }>("GET", "/status", cachedInfo, undefined, 2000);
+      if (status.running && status.cdpConnected !== false) {
+        return;
+      }
+    } catch {}
+    daemonReady = false;
+    cachedInfo = null;
   }
 
   // Try reading existing daemon.json and checking if daemon is alive
@@ -78,11 +79,16 @@ export async function ensureDaemon(): Promise<void> {
       info = null;
     } else {
       try {
-        const status = await httpJson<{ running?: boolean }>("GET", "/status", info, undefined, 2000);
-        if (status.running) {
+        const status = await httpJson<{ running?: boolean; cdpConnected?: boolean }>("GET", "/status", info, undefined, 2000);
+        if (status.running && status.cdpConnected !== false) {
           cachedInfo = info;
           daemonReady = true;
           return;
+        }
+        if (status.running && status.cdpConnected === false) {
+          await stopDaemon();
+          await deleteDaemonJson();
+          info = null;
         }
       } catch {
         // Daemon process exists but HTTP not responding — fall through to spawn

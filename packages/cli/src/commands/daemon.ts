@@ -14,6 +14,7 @@ export async function statusCommand(
       console.log(JSON.stringify({ running: false }));
     } else {
       console.log("Daemon not running");
+      console.log("\n\u{1F4A1} 启动: bb-browser tab list (自动启动) 或 bb-browser daemon (前台启动)");
     }
     return;
   }
@@ -48,6 +49,12 @@ export async function statusCommand(
     }
   } else {
     console.log("\nNo tabs");
+  }
+
+  if (status.cdpConnected === false) {
+    console.log("\n⚠️ Chrome 未连接。运行 bb-browser daemon stop && bb-browser tab list 重新启动");
+  } else {
+    console.log("\n\u{1F4A1} 停止: bb-browser daemon stop");
   }
 }
 
