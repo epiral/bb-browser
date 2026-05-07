@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.4](https://github.com/epiral/bb-browser/compare/bb-browser-v0.11.3...bb-browser-v0.11.4) (2026-05-07)
+
+
+### Bug Fixes
+
+* **cli:** daemon self-healing on CDP disconnect + cookie persistence ([#207](https://github.com/epiral/bb-browser/issues/207)) ([c0b4ff1](https://github.com/epiral/bb-browser/commit/c0b4ff16916f3b05f65f2113c24320afef6d3817))
+* **provider:** preserve large integer precision in decodeInput ([561c002](https://github.com/epiral/bb-browser/commit/561c00261981546d2e662329eb1343d072f80ea5))
+
 ## [0.11.3](https://github.com/epiral/bb-browser/compare/bb-browser-v0.11.2...bb-browser-v0.11.3) (2026-04-09)
 
 
