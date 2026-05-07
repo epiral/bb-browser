@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.5](https://github.com/epiral/bb-browser/compare/bb-browser-v0.11.4...bb-browser-v0.11.5) (2026-05-07)
+
+
+### Bug Fixes
+
+* **snapshot:** clean up stale highlight overlays before each snapshot and screenshot ([1938ce4](https://github.com/epiral/bb-browser/commit/1938ce46b18aa76dc8ac1a853380f105b7c65603)), closes [#173](https://github.com/epiral/bb-browser/issues/173)
+
 ## [0.11.4](https://github.com/epiral/bb-browser/compare/bb-browser-v0.11.3...bb-browser-v0.11.4) (2026-05-07)
 
 
