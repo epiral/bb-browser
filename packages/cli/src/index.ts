@@ -63,7 +63,7 @@ bb-browser - AI Agent 浏览器自动化工具
 浏览器操作：
   open <url> [--tab]           打开 URL
   snapshot [-i] [-c] [-d <n>]  获取页面快照
-  click <ref>                  点击元素
+  click [ref] [--selector|--coord] 点击元素
   hover <ref>                  悬停元素
   fill <ref> <text>            填充输入框（清空后填入）
   type <ref> <text>            逐字符输入（不清空）
@@ -101,7 +101,8 @@ bb-browser - AI Agent 浏览器自动化工具
   -i, --interactive    只输出可交互元素（snapshot 命令）
   -c, --compact        移除空结构节点（snapshot 命令）
   -d, --depth <n>      限制树深度（snapshot 命令）
-  -s, --selector <sel> 限定 CSS 选择器范围（snapshot 命令）
+  -s, --selector <sel> 限定 CSS 选择器范围（snapshot）或按选择器点击（click）
+  --coord <x,y>        按视口坐标点击元素（click 命令）
   --tab <tabId>        指定操作的标签页 ID
   --mcp                启动 MCP server（用于 Claude Code / Cursor 等 AI 工具）
   --help, -h           显示帮助信息
@@ -119,6 +120,7 @@ interface ParsedArgs {
     compact: boolean;
     depth?: number;
     selector?: string;
+    coord?: string;
     tab?: string;
     days?: number;
     jq?: string;
@@ -188,6 +190,12 @@ function parseArgs(argv: string[]): ParsedArgs {
       const nextIdx = args.indexOf(arg) + 1;
       if (nextIdx < args.length) {
         result.flags.selector = args[nextIdx];
+      }
+    } else if (arg === "--coord") {
+      skipNext = true;
+      const nextIdx = args.indexOf(arg) + 1;
+      if (nextIdx < args.length) {
+        result.flags.coord = args[nextIdx];
       }
     } else if (arg === "--days") {
       skipNext = true;
@@ -296,13 +304,17 @@ async function main(): Promise<void> {
 
       case "click": {
         const ref = parsed.args[0];
-        if (!ref) {
-          console.error("错误：缺少 ref 参数");
-          console.error("用法：bb-browser click <ref>");
+        const coord = parsed.flags.coord;
+        const selector = parsed.flags.selector;
+        if (!ref && !coord && !selector) {
+          console.error("错误：缺少参数：需要 ref、--selector 或 --coord");
+          console.error("用法：bb-browser click [ref] [--coord x,y] [--selector sel]");
           console.error("示例：bb-browser click @5");
+          console.error("      bb-browser click --coord 100,500");
+          console.error("      bb-browser click --selector \"button.submit\"");
           process.exit(1);
         }
-        await clickCommand(ref, { json: parsed.flags.json, tabId: globalTabId });
+        await clickCommand({ ref, coord, selector, json: parsed.flags.json, tabId: globalTabId });
         break;
       }
 

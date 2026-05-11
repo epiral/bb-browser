@@ -68,8 +68,12 @@ export interface Request {
   index?: number;
   /** 标签页 ID（tab_select, tab_close 命令使用，优先于 index） */
   tabId?: number | string;
-  /** CSS 选择器（frame 命令使用，定位 iframe） */
+  /** CSS 选择器（frame 命令定位 iframe；click/hover 命令按选择器点击元素） */
   selector?: string;
+  /** 视口坐标 x（click/hover 命令，直接坐标点击） */
+  x?: number;
+  /** 视口坐标 y（click/hover 命令，直接坐标点击） */
+  y?: number;
   /** dialog 响应类型（dialog 命令使用） */
   dialogResponse?: "accept" | "dismiss";
   /** prompt 对话框的输入文本（dialog accept 时可选） */

@@ -146,6 +146,8 @@ Six platforms, six dimensions, structured JSON. Faster and broader than any huma
 bb-browser open https://example.com
 bb-browser snapshot -i                # accessibility tree
 bb-browser click @3                   # click element
+bb-browser click --selector ".submit" # click by CSS selector
+bb-browser click --coord 320,200      # click by viewport coordinates
 bb-browser fill @5 "hello"            # fill input
 bb-browser eval "document.title"      # run JS
 bb-browser fetch URL --json           # authenticated fetch
