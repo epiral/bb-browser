@@ -102,6 +102,12 @@ export class CdpConnection {
   /** Resolvers for commands queued before CDP is ready. */
   private readyWaiters: Array<{ resolve: () => void; reject: (err: Error) => void }> = [];
 
+  /** Set to true during intentional disconnect to suppress auto-reconnect. */
+  private intentionalClose = false;
+
+  /** Handle for the pending reconnect timer, if any. */
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor(host: string, port: number, tabManager: TabStateManager) {
     this.host = host;
     this.port = port;
@@ -123,6 +129,7 @@ export class CdpConnection {
   async connect(): Promise<void> {
     if (this._connected) return;
     if (this.connectionPromise) return this.connectionPromise;
+    this.intentionalClose = false;
 
     this.connectionPromise = this.doConnect();
     try {
@@ -173,17 +180,34 @@ export class CdpConnection {
     this.readyWaiters = [];
   }
 
-  /** Wait until CDP connection is established (for two-phase startup). */
+  /** Wait until CDP connection is established (for two-phase startup or reconnect). */
   waitUntilReady(): Promise<void> {
     if (this._connected) return Promise.resolve();
+    if (this.isReconnecting) {
+      return new Promise<void>((resolve, reject) => {
+        this.readyWaiters.push({ resolve, reject });
+      });
+    }
     if (this.lastError) return Promise.reject(new Error(this.lastError));
     return new Promise<void>((resolve, reject) => {
       this.readyWaiters.push({ resolve, reject });
     });
   }
 
+  /** True when a reconnect attempt is scheduled or in progress. */
+  get isReconnecting(): boolean {
+    return !this.intentionalClose && !this._connected &&
+      (this.reconnectTimer !== null || this.connectionPromise !== null);
+  }
+
   /** Gracefully close the CDP connection. */
   disconnect(): void {
+    this.intentionalClose = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
     if (this.socket) {
       try {
         this.socket.close();
@@ -303,14 +327,41 @@ export class CdpConnection {
       }
       this.pending.clear();
 
-      const closeErr = new Error(this.lastError);
-      for (const waiter of this.readyWaiters) {
-        waiter.reject(closeErr);
-      }
-      this.readyWaiters = [];
+      if (this.intentionalClose) return;
+      this.scheduleReconnect();
     });
 
     ws.on("error", () => {});
+  }
+
+  // ---------------------------------------------------------------------------
+  // Auto-reconnect
+  // ---------------------------------------------------------------------------
+
+  private scheduleReconnect(): void {
+    if (this.intentionalClose || this.reconnectTimer) return;
+
+    console.error("[CDP] WebSocket closed, reconnecting in 5s...");
+
+    this.reconnectTimer = setTimeout(async () => {
+      this.reconnectTimer = null;
+      if (this.intentionalClose) return;
+
+      this.sessions.clear();
+      this.attachedTargets.clear();
+      this.currentTargetId = undefined;
+
+      try {
+        await this.connect();
+        console.error(
+          `[CDP] Reconnected, monitoring ${this.tabManager.tabCount} tab(s)`,
+        );
+      } catch {
+        if (!this.intentionalClose) {
+          this.scheduleReconnect();
+        }
+      }
+    }, 5000);
   }
 
   // ---------------------------------------------------------------------------

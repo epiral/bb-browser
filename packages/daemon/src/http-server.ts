@@ -183,6 +183,7 @@ export class HttpServer {
     this.sendJson(res, 200, {
       running: true,
       cdpConnected: this.cdp.connected,
+      cdpReconnecting: this.cdp.isReconnecting,
       uptime: this.uptime,
       currentSeq: this.cdp.tabManager.currentSeq(),
       currentTargetId: this.cdp.currentTargetId,
