@@ -595,6 +595,7 @@ export async function dispatchRequest(
 ): Promise<Response> {
   // Resolve target from request.tabId (supports short IDs)
   const tabRef = request.tabId;
+  const useCurrentTab = tabRef === "current";
 
   // tab_new must work even when there are no existing tabs,
   // so handle it before ensurePageTarget().
@@ -636,7 +637,7 @@ export async function dispatchRequest(
   }
 
   const target = await cdp.ensurePageTarget(
-    tabRef !== undefined ? String(tabRef) : undefined,
+    tabRef !== undefined && !useCurrentTab ? String(tabRef) : undefined,
   );
   const tab = cdp.tabManager.getTab(target.id);
   if (!tab) throw new Error("Internal error: tab state not found");
@@ -661,7 +662,7 @@ export async function dispatchRequest(
         return ok({
           url: request.url,
           tabId: newTarget.id,
-          tab: newTab?.shortId ?? shortId,
+          tab: newTab?.shortId ?? newTarget.id.slice(-4).toLowerCase(),
           seq,
         });
       }

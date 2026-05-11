@@ -4,7 +4,7 @@
  * 用法：
  *   bb-browser open <url>                # 在新 tab 中打开
  *   bb-browser open <url> --tab current  # 在当前 tab 中打开
- *   bb-browser open <url> --tab 123      # 在指定 tabId 的 tab 中打开
+ *   bb-browser open <url> --tab <tabId>  # 在指定 tabId 的 tab 中打开
  */
 
 import type { Request, Response } from "@bb-browser/shared";
@@ -14,7 +14,11 @@ import { getSiteHintForDomain } from "./site.js";
 
 export interface OpenOptions {
   json?: boolean;
-  tab?: string;  // "current" | tabId 数字字符串 | undefined（新建 tab）
+  tab?: string;  // "current" | tabId | undefined（新建 tab）
+}
+
+export function resolveOpenTabOption(tab: string): string {
+  return tab;
 }
 
 export async function openCommand(
@@ -48,11 +52,7 @@ export async function openCommand(
       (request as Record<string, unknown>).tabId = "current";
     } else {
       // 使用指定 tabId
-      const tabId = parseInt(options.tab, 10);
-      if (isNaN(tabId)) {
-        throw new Error(`无效的 tabId: ${options.tab}`);
-      }
-      (request as Record<string, unknown>).tabId = tabId;
+      request.tabId = resolveOpenTabOption(options.tab);
     }
   }
   // 不指定 --tab 时，tabId 为 undefined，扩展会创建新 tab
@@ -65,13 +65,16 @@ export async function openCommand(
     console.log(JSON.stringify(response, null, 2));
   } else {
     if (response.result) {
-      const tab = response.result?.tab;
+      const tab = response.result?.tab ?? response.result?.tabId;
       if (tab) {
         console.log(`tab: ${tab}`);
       }
       console.log(`url: ${response.result?.url ?? normalizedUrl}`);
       if (response.result?.title) {
         console.log(`title: ${response.result.title}`);
+      }
+      if (response.result?.tab && response.result?.tabId && response.result.tab !== response.result.tabId) {
+        console.log(`targetId: ${response.result.tabId}`);
       }
       // 提示：如果该域名有 site adapter，引导使用
       const siteHint = getSiteHintForDomain(normalizedUrl);
