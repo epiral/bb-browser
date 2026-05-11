@@ -26,6 +26,7 @@ const BB_DIR = join(homedir(), ".bb-browser");
 const LOCAL_SITES_DIR = join(BB_DIR, "sites");
 const COMMUNITY_SITES_DIR = join(BB_DIR, "bb-sites");
 const COMMUNITY_REPO = "https://github.com/epiral/bb-sites.git";
+const SITE_EVAL_NAVIGATION_RETRY_WINDOW_MS = 15000;
 
 function checkCliUpdate(): void {
   try {
@@ -218,6 +219,48 @@ function matchTabOrigin(tabUrl: string, domain: string): boolean {
   } catch {
     return false;
   }
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientEvalNavigationError(error?: string): boolean {
+  return /Inspected target navigated or closed|Execution context was destroyed|Cannot find context|Target closed|No target/i.test(error || "");
+}
+
+function shouldRetryTransientSiteEvalError(error: string | undefined, elapsedMs: number): boolean {
+  return elapsedMs <= SITE_EVAL_NAVIGATION_RETRY_WINDOW_MS && isTransientEvalNavigationError(error);
+}
+
+async function resolveSiteTargetTabId(site: SiteMeta, options: SiteOptions): Promise<string | number | undefined> {
+  let targetTabId: string | number | undefined = options.tabId;
+
+  if (!targetTabId && site.domain) {
+    const listReq: Request = { id: generateId(), action: "tab_list" };
+    const listResp: Response = await sendCommand(listReq);
+
+    if (listResp.success && listResp.data?.tabs) {
+      const matchingTab = listResp.data.tabs.find((tab: TabInfo) =>
+        matchTabOrigin(tab.url, site.domain)
+      );
+      if (matchingTab) {
+        targetTabId = matchingTab.tabId;
+      }
+    }
+
+    if (!targetTabId) {
+      const newResp = await sendCommand({
+        id: generateId(),
+        action: "tab_new",
+        url: `https://${site.domain}`,
+      });
+      targetTabId = newResp.data?.tabId;
+      await wait(3000);
+    }
+  }
+
+  return targetTabId;
 }
 
 // ── 子命令 ──────────────────────────────────────────────────────
@@ -654,37 +697,22 @@ async function siteRun(
 
   await ensureDaemonRunning();
 
-  // 确定目标 tab
-  let targetTabId: number | undefined = options.tabId;
+  let targetTabId = await resolveSiteTargetTabId(site, options);
+  let evalReq: Request = { id: generateId(), action: "eval", script, tabId: targetTabId };
+  let evalStartedAt = Date.now();
+  let evalResp: Response = await sendCommand(evalReq);
 
-  // 如果用户没指定 --tab，自动查找匹配域名的 tab
-  if (!targetTabId && site.domain) {
-    const listReq: Request = { id: generateId(), action: "tab_list" };
-    const listResp: Response = await sendCommand(listReq);
-
-    if (listResp.success && listResp.data?.tabs) {
-      const matchingTab = listResp.data.tabs.find((tab: TabInfo) =>
-        matchTabOrigin(tab.url, site.domain)
-      );
-      if (matchingTab) {
-        targetTabId = matchingTab.tabId;
-      }
-    }
-
-    if (!targetTabId) {
-      const newResp = await sendCommand({
-        id: generateId(),
-        action: "tab_new",
-        url: `https://${site.domain}`,
-      });
-      targetTabId = newResp.data?.tabId;
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-    }
+  for (
+    let attempt = 0;
+    !evalResp.success && attempt < 2 && shouldRetryTransientSiteEvalError(evalResp.error, Date.now() - evalStartedAt);
+    attempt++
+  ) {
+    await wait(1500 * (attempt + 1));
+    targetTabId = await resolveSiteTargetTabId(site, options);
+    evalReq = { id: generateId(), action: "eval", script, tabId: targetTabId };
+    evalStartedAt = Date.now();
+    evalResp = await sendCommand(evalReq);
   }
-
-  // 执行
-  const evalReq: Request = { id: generateId(), action: "eval", script, tabId: targetTabId };
-  const evalResp: Response = await sendCommand(evalReq);
 
   if (!evalResp.success) {
     const hint = site.domain
