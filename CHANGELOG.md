@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.6](https://github.com/epiral/bb-browser/compare/bb-browser-v0.11.5...bb-browser-v0.11.6) (2026-05-11)
+
+
+### Features
+
+* **daemon:** screenshot saves to clip data and returns pinix:// URI ([ba86f0c](https://github.com/epiral/bb-browser/commit/ba86f0c38cdae4f87bfa30b37676ea1435e5b66c))
+* **provider:** handle DataCommand for clip data protocol ([0ddcca6](https://github.com/epiral/bb-browser/commit/0ddcca6b6679f17b1c5d28a128768db6d15a1f88))
+
 ## [0.11.5](https://github.com/epiral/bb-browser/compare/bb-browser-v0.11.4...bb-browser-v0.11.5) (2026-05-07)
 
 
