@@ -16,6 +16,7 @@ import type {
   ConsoleMessageInfo,
   JSErrorInfo,
   RefInfo,
+  TraceEvent,
 } from "@bb-browser/shared";
 import { RingBuffer } from "./ring-buffer.js";
 
@@ -26,6 +27,7 @@ import { RingBuffer } from "./ring-buffer.js";
 export type SeqNetworkRequest = NetworkRequestInfo & { seq: number };
 export type SeqConsoleMessage = ConsoleMessageInfo & { seq: number };
 export type SeqJSError = JSErrorInfo & { seq: number };
+export type SeqTraceEvent = TraceEvent & { seq: number };
 
 // ---------------------------------------------------------------------------
 // Per-tab state
@@ -34,6 +36,16 @@ export type SeqJSError = JSErrorInfo & { seq: number };
 const NETWORK_CAPACITY = 500;
 const CONSOLE_CAPACITY = 200;
 const ERRORS_CAPACITY = 100;
+// Trace buffer capacity is overridable via BB_TRACE_CAPACITY so long sessions
+// don't silently drop early events. When the buffer first fills, a warning is
+// logged once per tab so users notice instead of discovering missing steps later.
+const TRACE_CAPACITY = (() => {
+  const raw = process.env.BB_TRACE_CAPACITY;
+  if (!raw) return 1000;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 100 ? n : 1000;
+})();
+export { TRACE_CAPACITY };
 
 export class TabState {
   readonly targetId: string;
@@ -57,6 +69,18 @@ export class TabState {
 
   /** Dialog auto-handler config. */
   dialogHandler: { accept: boolean; promptText?: string } | null = null;
+
+  /** Trace recording flag. */
+  traceRecording = false;
+
+  /** Trace events buffer. */
+  traceEvents = new RingBuffer<SeqTraceEvent>(TRACE_CAPACITY);
+
+  /** Last navigation URL recorded into trace, for dedup across CDP redirects. */
+  private lastTraceNavUrl: string | undefined;
+
+  /** Whether the buffer-full warning has already been logged for this tab. */
+  private traceOverflowWarned = false;
 
   constructor(
     targetId: string,
@@ -121,6 +145,50 @@ export class TabState {
   addJSError(info: Omit<JSErrorInfo, never>): void {
     const seq = this.nextSeq();
     this.jsErrors.push({ ...info, seq });
+  }
+
+  // --------------- Trace events ---------------
+
+  addTraceEvent(info: TraceEvent): void {
+    const seq = this.nextSeq();
+    if (
+      !this.traceOverflowWarned &&
+      this.traceEvents.size >= this.traceEvents.capacity
+    ) {
+      this.traceOverflowWarned = true;
+      console.warn(
+        `[bb-browser] trace buffer full for tab ${this.shortId} (cap=${this.traceEvents.capacity}); oldest events will be discarded. Set BB_TRACE_CAPACITY to raise the limit.`,
+      );
+    }
+    this.traceEvents.push({ ...info, seq });
+  }
+
+  /** Record a navigation event, deduping consecutive identical URLs. */
+  addTraceNavigation(url: string): void {
+    if (!url) return;
+    if (this.lastTraceNavUrl === url) return;
+    this.lastTraceNavUrl = url;
+    this.addTraceEvent({ type: "navigation", timestamp: Date.now(), url });
+  }
+
+  getTraceEvents(options?: {
+    since?: number | "last_action";
+    limit?: number;
+  }): { items: SeqTraceEvent[]; cursor: number } {
+    let items = this.traceEvents.toArray();
+    if (options?.since !== undefined) {
+      const threshold =
+        options.since === "last_action" ? this.lastActionSeq : options.since;
+      items = items.filter((item) => item.seq > threshold);
+    }
+    if (options?.limit !== undefined && options.limit > 0 && items.length > options.limit) {
+      items = items.slice(-options.limit);
+    }
+    const sinceThreshold = options?.since !== undefined
+      ? (options.since === "last_action" ? this.lastActionSeq : options.since)
+      : 0;
+    const cursor = items.length > 0 ? Math.max(...items.map((i) => i.seq)) : sinceThreshold;
+    return { items, cursor };
   }
 
   // --------------- Query helpers ---------------
@@ -253,6 +321,12 @@ export class TabState {
 
   clearErrors(): void {
     this.jsErrors.clear();
+  }
+
+  clearTrace(): void {
+    this.traceEvents.clear();
+    this.lastTraceNavUrl = undefined;
+    this.traceOverflowWarned = false;
   }
 }
 

@@ -102,9 +102,15 @@ export class HttpServer {
       return;
     }
 
-    if (!this.checkAuth(req, res)) return;
-
     const url = req.url ?? "/";
+
+    // /ping 不需要认证（前端连接检测用）
+    if (req.method === "GET" && url === "/ping") {
+      this.sendJson(res, 200, { pong: true, token: this.token });
+      return;
+    }
+
+    if (!this.checkAuth(req, res)) return;
 
     if (req.method === "POST" && url === "/command") {
       this.handleCommand(req, res);

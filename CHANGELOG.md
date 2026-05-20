@@ -1,5 +1,32 @@
 # Changelog
 
+## [Unreleased]
+
+### Features
+
+- **web/ExportDialog**: 选择器模式可选 Auto / CSS / XPath，默认 Auto 保留 bb-browser ref 优先级；CSS 模式生成可脱离 bb-browser 运行的脚本，XPath 模式跨 DOM 变化更稳定
+- **web/ExportDialog**: 智能等待开关 — 在每个 click/fill/select/check 前插入 `page.waitForSelector` / `locator.waitFor()` / Selenium `WebDriverWait`，默认开启
+- **daemon/trace-inject**: 监听 `popstate` / `hashchange`，捕获 SPA 内导航
+- **daemon/cdp-connection**: `Page.frameNavigated` 主框架事件转为 `navigation` 类型 trace 事件，并按 URL 去重
+- **daemon/tab-state**: trace 缓冲区容量可通过 `BB_TRACE_CAPACITY` 环境变量配置（默认 1000，最小 100）；缓冲首次写满时打印一次性 warning
+
+### Bug Fixes
+
+- **web/ExportDialog**: 字符串转义改用 `JSON.stringify`，正确处理换行、制表符、Unicode、双引号
+- **web/ExportDialog**: 首条 `navigation` 事件若与 `activeTab.url` 一致则跳过，避免双重 `page.goto`
+
+- **web/ExportDialog**: 导出使用 cssSelector 回退选择器（ref 不存在时），添加 page.goto() 导航步骤，支持 select/check/scroll 事件类型，转义字符串中的单引号 (361b9c9)
+- **daemon/trace-inject**: frameset 页面事件捕获 — 设置 recording 标志先于脚本注入，添加 frame load 监听器，脚本支持重入 (03c0cbf)
+- **web/TraceStudio**: 使用 Web Worker 定时器轮询（Chrome 对隐藏标签 setInterval 限流 ≥60s），仅在 recording false→true 时重置 cursor 防止事件重复 (c5651de)
+- **web/store**: ADD_TRACE_EVENT 按 seq 去重，SET_TRACE_EVENTS 同步 realTimeStats (c5651de)
+- **web/TraceTimeline**: 使用 event.seq 作为 React key 替代 index，稳定 DOM diff (c5651de)
+- **daemon/click**: element.click() 回退，修复 React 合成事件下 browser_click 不可靠 ([#3](https://github.com/epiral/bb-browser/pull/3))
+- **daemon/trace-inject**: scroll 阈值 50→200px，减少滚动事件过度采集 ([#3](https://github.com/epiral/bb-browser/pull/3))
+- **web/TraceStudio**: 轮询新增 tabId 参数并重置 cursor，修复录制中事件不展示 ([#3](https://github.com/epiral/bb-browser/pull/3))
+- **web/TabPanel**: 过滤 chrome://errorpage 等无效 tab ([#3](https://github.com/epiral/bb-browser/pull/3))
+- **web/vite**: 端口 3000→3004 + strictPort，防止端口漂移 ([#3](https://github.com/epiral/bb-browser/pull/3))
+- **cli/cdp-discovery**: 添加 360ChromeX 浏览器路径探测，使用本机 profile 而非新建空白 profile ([#3](https://github.com/epiral/bb-browser/pull/3))
+
 ## [0.11.6](https://github.com/epiral/bb-browser/compare/bb-browser-v0.11.5...bb-browser-v0.11.6) (2026-05-11)
 
 
