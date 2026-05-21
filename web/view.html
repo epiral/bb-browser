@@ -12,27 +12,261 @@ html, body { height: 100%; overflow: hidden; background: #0a0a0a; color: #e0e0e0
 #toolbar button { padding: 4px 14px; border: 1px solid #444; border-radius: 4px; background: #2a2a2a; color: #e0e0e0; cursor: pointer; font-size: 13px; }
 #toolbar button:hover { background: #3a3a3a; }
 #toolbar button.connected { border-color: #e55; background: #3a1a1a; }
-#status { font-size: 12px; color: #888; margin-left: auto; }
+
+/* Tab bar */
+#tab-bar {
+  display: flex;
+  align-items: center;
+  background: #1a1a1a;
+  border-bottom: 1px solid #333;
+  height: 36px;
+  padding: 0 8px;
+  gap: 2px;
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  padding: 4px 12px;
+  background: #252525;
+  border: 1px solid #333;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  color: #aaa;
+  font-size: 12px;
+  cursor: pointer;
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+  gap: 6px;
+}
+
+.tab.active {
+  background: #333;
+  color: #fff;
+  border-color: #555;
+}
+
+.tab:hover { background: #2a2a2a; }
+.tab.active:hover { background: #333; }
+
+.tab-close {
+  font-size: 14px;
+  line-height: 1;
+  color: #666;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tab-close:hover { color: #f55; }
+
+#new-tab-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid #444;
+  border-radius: 6px;
+  color: #888;
+  font-size: 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+
+#new-tab-btn:hover { background: #333; color: #fff; }
+
+/* URL bar */
+#url-bar {
+  display: flex;
+  align-items: center;
+  background: #1a1a1a;
+  border-bottom: 1px solid #333;
+  height: 40px;
+  padding: 0 8px;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.nav-btn {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #888;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.nav-btn:hover { background: #333; color: #fff; }
+
+#url-input {
+  flex: 1;
+  height: 30px;
+  background: #252525;
+  border: 1px solid #444;
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 13px;
+  padding: 0 10px;
+  outline: none;
+}
+
+#url-input:focus { border-color: #4a9eff; }
+
+/* Video container */
 #video-container { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; background: #000; }
 video { max-width: 100%; max-height: 100%; object-fit: contain; background: #000; }
 #ime-input { position: fixed; top: -100px; left: -100px; width: 1px; height: 1px; opacity: 0; }
+
+/* Status bar */
+#status-bar {
+  height: 24px;
+  background: #1a1a1a;
+  border-top: 1px solid #333;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 11px;
+  color: #666;
+  flex-shrink: 0;
+  gap: 16px;
+}
+
+#status-bar .status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #555;
+  flex-shrink: 0;
+}
+
+#status-bar .status-dot.connected { background: #4caf50; }
+#status-bar .status-dot.connecting { background: #ff9800; }
+#status-bar .status-dot.error { background: #f44; }
+
+#debug-toggle {
+  margin-left: auto;
+  height: 18px;
+  padding: 0 8px;
+  background: #252525;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #888;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+#debug-toggle.active {
+  color: #fff;
+  border-color: #4a9eff;
+  background: #123152;
+}
+
+/* Debug panel */
+#debug-panel {
+  position: absolute;
+  right: 12px;
+  bottom: 36px;
+  width: min(760px, calc(100vw - 24px));
+  max-height: min(420px, calc(100vh - 120px));
+  display: flex;
+  flex-direction: column;
+  background: rgba(8, 12, 18, 0.94);
+  border: 1px solid #35506d;
+  border-radius: 8px;
+  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  z-index: 20;
+}
+
+#debug-panel[hidden] { display: none; }
+
+#debug-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #101a26;
+  border-bottom: 1px solid #27384b;
+  color: #cbe4ff;
+  font-size: 12px;
+}
+
+#debug-header strong { margin-right: auto; }
+
+.debug-action {
+  height: 22px;
+  padding: 0 8px;
+  background: #17283a;
+  border: 1px solid #35506d;
+  border-radius: 4px;
+  color: #cbe4ff;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+#debug-log {
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  color: #b7d8ff;
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: pre-wrap;
+}
 </style>
 </head>
 <body>
 <div id="app">
   <div id="toolbar">
     <button id="btn-connect">Connect</button>
-    <span id="status">Disconnected</span>
+  </div>
+  <div id="tab-bar">
+    <button id="new-tab-btn" title="New tab">+</button>
+  </div>
+  <div id="url-bar">
+    <button class="nav-btn" id="btn-back" title="Back">&#9664;</button>
+    <button class="nav-btn" id="btn-forward" title="Forward">&#9654;</button>
+    <button class="nav-btn" id="btn-reload" title="Reload">&#8635;</button>
+    <input type="text" id="url-input" placeholder="Enter URL..." />
+    <button class="nav-btn" id="btn-go" title="Go">&#10140;</button>
   </div>
   <div id="video-container">
     <video id="video" autoplay playsinline muted></video>
   </div>
+  <div id="status-bar">
+    <span class="status-dot" id="status-dot"></span>
+    <span id="status-text">Disconnected</span>
+    <span id="status-resolution"></span>
+    <button id="debug-toggle" type="button" title="Toggle debug panel (Ctrl+Shift+D)">Debug</button>
+  </div>
 </div>
+
+<div id="debug-panel" hidden>
+  <div id="debug-header">
+    <strong>Debug Events</strong>
+    <span id="debug-count">0 events</span>
+    <button class="debug-action" id="debug-copy" type="button">Copy</button>
+    <button class="debug-action" id="debug-clear" type="button">Clear</button>
+  </div>
+  <pre id="debug-log"></pre>
+</div>
+
 <textarea id="ime-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
 
 <script type="module">
 // invoke() calls the Hub's clip API endpoint. Works in subdomain mode:
-//   browser.hub.pinixai.com/api/view.start → Hub proxies to provider invoke
+//   browser.hub.pinixai.com/api/view.start -> Hub proxies to provider invoke
 async function invoke(command, input) {
   const resp = await fetch(`/api/${command}`, {
     method: "POST",
@@ -50,22 +284,324 @@ async function invoke(command, input) {
 let pc = null;
 let dc = null;
 let connected = false;
+let activeTabId = null;
+let lastTabs = [];
+let tabPollTimer = null;
+let lastMouseTraceAt = 0;
+
 let videoEl = document.getElementById("video");
 let btnConnect = document.getElementById("btn-connect");
-let statusEl = document.getElementById("status");
 let imeInput = document.getElementById("ime-input");
 let videoContainer = document.getElementById("video-container");
 let isComposing = false;
 
-// --- UI ---
-function setStatus(text) { statusEl.textContent = text; }
+// UI elements
+const statusDot = document.getElementById("status-dot");
+const statusText = document.getElementById("status-text");
+const statusRes = document.getElementById("status-resolution");
+const urlInput = document.getElementById("url-input");
+const tabBar = document.getElementById("tab-bar");
+const newTabBtn = document.getElementById("new-tab-btn");
+const backBtn = document.getElementById("btn-back");
+const forwardBtn = document.getElementById("btn-forward");
+const reloadBtn = document.getElementById("btn-reload");
+const goBtn = document.getElementById("btn-go");
+const debugToggleBtn = document.getElementById("debug-toggle");
+const debugPanel = document.getElementById("debug-panel");
+const debugLogEl = document.getElementById("debug-log");
+const debugCountEl = document.getElementById("debug-count");
+const debugCopyBtn = document.getElementById("debug-copy");
+const debugClearBtn = document.getElementById("debug-clear");
+
+// --- Debug harness ---
+const debugEvents = [];
+let debugEnabled = localStorage.getItem("bb-view-debug") === "1";
+
+function safeDetail(detail) {
+  if (!detail) return "";
+  try { return JSON.stringify(detail); } catch { return String(detail); }
+}
+
+function debugLine(entry) {
+  const rel = String(entry.ms).padStart(7, " ");
+  const detail = safeDetail(entry.detail);
+  return `${entry.time} +${rel}ms [${entry.tag}] ${entry.event}${detail ? " " + detail : ""}`;
+}
+
+function renderDebugLog() {
+  debugCountEl.textContent = debugEvents.length + " events";
+  if (!debugEnabled) return;
+  debugLogEl.textContent = debugEvents.map(debugLine).join("\n");
+  debugLogEl.scrollTop = debugLogEl.scrollHeight;
+}
+
+function setDebugEnabled(enabled, trigger) {
+  debugEnabled = enabled;
+  localStorage.setItem("bb-view-debug", enabled ? "1" : "0");
+  debugPanel.hidden = !enabled;
+  debugToggleBtn.classList.toggle("active", enabled);
+  debugLog("debug", "toggle", { enabled, trigger });
+  renderDebugLog();
+}
+
+function debugLog(tag, event, detail) {
+  const entry = {
+    time: new Date().toISOString(),
+    ms: Math.round(performance.now()),
+    tag,
+    event,
+    detail: detail || null,
+  };
+  debugEvents.push(entry);
+  if (debugEvents.length > 500) debugEvents.shift();
+  if (debugEnabled) {
+    console.debug("[bb-view]", entry);
+    renderDebugLog();
+  }
+}
+
+function traceMouseMove(detail) {
+  const now = performance.now();
+  if (now - lastMouseTraceAt < 250) return;
+  lastMouseTraceAt = now;
+  debugLog("input", "mouse_move", detail);
+}
+
+// Init debug state
+setDebugEnabled(debugEnabled, "init");
+
+debugToggleBtn.onclick = () => setDebugEnabled(!debugEnabled, "button");
+debugClearBtn.onclick = () => {
+  debugEvents.length = 0;
+  debugLog("debug", "clear", { trigger: "button" });
+};
+debugCopyBtn.onclick = async () => {
+  const text = debugEvents.map(debugLine).join("\n");
+  try {
+    await navigator.clipboard.writeText(text);
+    debugLog("debug", "copy", { events: debugEvents.length, ok: true });
+  } catch (e) {
+    debugLog("debug", "copy_failed", { message: e.message });
+  }
+};
+
+// Ctrl+Shift+D shortcut
+document.addEventListener("keydown", (e) => {
+  if (e.ctrlKey && e.shiftKey && e.code === "KeyD") {
+    e.preventDefault();
+    e.stopPropagation();
+    setDebugEnabled(!debugEnabled, "shortcut");
+  }
+}, true);
+
+// --- Status ---
+function setStatus(state, text) {
+  debugLog("status", "set", { state, text });
+  statusDot.className = "status-dot " + state;
+  statusText.textContent = text;
+}
 
 function setConnected(state) {
   connected = state;
   btnConnect.textContent = state ? "Disconnect" : "Connect";
   btnConnect.classList.toggle("connected", state);
-  setStatus(state ? "Connected" : "Disconnected");
+  if (state) {
+    setStatus("connected", "Connected");
+  } else {
+    setStatus("", "Disconnected");
+  }
 }
+
+// Video resolution display
+videoEl.addEventListener("resize", () => {
+  statusRes.textContent = videoEl.videoWidth + "x" + videoEl.videoHeight;
+  debugLog("video", "resize", { width: videoEl.videoWidth, height: videoEl.videoHeight });
+});
+
+// --- Tab management ---
+function renderTabs(tabs) {
+  tabBar.querySelectorAll(".tab").forEach(el => el.remove());
+  tabs.forEach(tab => {
+    const el = document.createElement("div");
+    el.className = "tab" + (tab.tab === activeTabId ? " active" : "");
+    el.dataset.id = tab.tab;
+
+    const title = document.createElement("span");
+    title.textContent = tab.title || tab.url || "New Tab";
+    title.style.overflow = "hidden";
+    title.style.textOverflow = "ellipsis";
+    el.appendChild(title);
+
+    const close = document.createElement("span");
+    close.className = "tab-close";
+    close.textContent = "\u00d7";
+    close.onclick = async (e) => {
+      e.stopPropagation();
+      debugLog("tab", "close_click", { tab: tab.tab });
+      try {
+        await invoke("tab_close", { tab: tab.tab });
+        debugLog("tab", "close_done", { tab: tab.tab });
+        await fetchTabs();
+      } catch (err) {
+        debugLog("tab", "close_failed", { tab: tab.tab, message: err.message });
+        setStatus("error", "Close tab failed: " + err.message);
+      }
+    };
+    el.appendChild(close);
+
+    el.onclick = () => selectTab(tab.tab);
+    tabBar.insertBefore(el, newTabBtn);
+  });
+}
+
+async function fetchTabs() {
+  try {
+    debugLog("api", "fetch_tabs_start", { activeTabId });
+    const result = await invoke("tab_list", {});
+    const tabs = result.tabs || [];
+    lastTabs = tabs;
+    // Update active tab
+    if (tabs.length === 0) {
+      activeTabId = null;
+    } else if (!activeTabId || !tabs.some(t => t.tab === activeTabId)) {
+      activeTabId = tabs[0].tab;
+    }
+    renderTabs(tabs);
+    // Update URL bar with active tab's URL
+    const activeTab = tabs.find(t => t.tab === activeTabId);
+    if (activeTab && activeTab.url) {
+      urlInput.value = activeTab.url;
+    }
+    debugLog("api", "fetch_tabs_done", { count: tabs.length, activeTabId });
+    return tabs;
+  } catch (err) {
+    debugLog("api", "fetch_tabs_failed", { message: err.message });
+    // Don't clear existing tabs on error
+    renderTabs(lastTabs);
+    return lastTabs;
+  }
+}
+
+async function selectTab(tabId) {
+  if (tabId === activeTabId) return;
+  debugLog("tab", "select_click", { tab: tabId, previous: activeTabId });
+  try {
+    await invoke("tab_select", { tab: tabId });
+    activeTabId = tabId;
+    debugLog("tab", "select_done", { tab: tabId });
+    await fetchTabs();
+  } catch (err) {
+    debugLog("tab", "select_failed", { tab: tabId, message: err.message });
+    setStatus("error", "Select tab failed: " + err.message);
+  }
+}
+
+newTabBtn.onclick = async () => {
+  debugLog("tab", "new_click", { activeTabId });
+  try {
+    const result = await invoke("tab_new", {});
+    activeTabId = result.tab;
+    debugLog("tab", "new_done", { tab: result.tab });
+    await fetchTabs();
+  } catch (err) {
+    debugLog("tab", "new_failed", { message: err.message });
+    setStatus("error", "New tab failed: " + err.message);
+  }
+};
+
+// Start tab polling
+function startTabPolling() {
+  if (tabPollTimer) return;
+  tabPollTimer = setInterval(() => { fetchTabs(); }, 5000);
+}
+
+function stopTabPolling() {
+  if (tabPollTimer) {
+    clearInterval(tabPollTimer);
+    tabPollTimer = null;
+  }
+}
+
+// --- URL bar navigation ---
+function normalizeURL(url) {
+  url = url.trim();
+  if (/^(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\])(?::|\/|$)/i.test(url)) {
+    return "http://" + url;
+  }
+  if (/^(https?|about|chrome|file|data|devtools):/i.test(url)) {
+    return url;
+  }
+  return "https://" + url;
+}
+
+async function navigateToURL(url) {
+  if (!url) {
+    debugLog("nav", "ignored", { reason: "empty_url" });
+    return;
+  }
+  url = normalizeURL(url);
+  urlInput.value = url;
+  debugLog("nav", "trigger", { url, trigger: "url_bar" });
+  try {
+    const result = await invoke("open", { url });
+    debugLog("nav", "done", { url, tab: result.tab });
+    if (result.tab) activeTabId = result.tab;
+    // Refresh tabs after navigation to update titles
+    setTimeout(() => fetchTabs(), 1000);
+  } catch (err) {
+    debugLog("nav", "failed", { url, message: err.message });
+    setStatus("error", "Navigate failed: " + err.message);
+  }
+}
+
+backBtn.onclick = async () => {
+  debugLog("nav", "back_click");
+  try { await invoke("back", {}); } catch (err) { debugLog("nav", "back_failed", { message: err.message }); }
+};
+forwardBtn.onclick = async () => {
+  debugLog("nav", "forward_click");
+  try { await invoke("forward", {}); } catch (err) { debugLog("nav", "forward_failed", { message: err.message }); }
+};
+reloadBtn.onclick = async () => {
+  debugLog("nav", "reload_click");
+  try { await invoke("refresh", {}); } catch (err) { debugLog("nav", "reload_failed", { message: err.message }); }
+};
+goBtn.onclick = () => navigateToURL(urlInput.value);
+
+// URL bar IME-aware Enter handling
+let urlBarComposing = false;
+let urlBarLastCompositionEnd = 0;
+urlInput.addEventListener("compositionstart", () => {
+  urlBarComposing = true;
+  debugLog("nav", "url_composition_start");
+});
+urlInput.addEventListener("compositionend", () => {
+  urlBarComposing = false;
+  urlBarLastCompositionEnd = performance.now();
+  debugLog("nav", "url_composition_end");
+});
+
+urlInput.addEventListener("keydown", (e) => {
+  if (e.isComposing || urlBarComposing || e.keyCode === 229) return;
+  if (e.key === "Enter") {
+    const sinceComposition = performance.now() - urlBarLastCompositionEnd;
+    if (sinceComposition < 250) {
+      debugLog("nav", "enter_swallow_post_composition", { sinceMs: Math.round(sinceComposition) });
+      return;
+    }
+    debugLog("nav", "enter", { value: urlInput.value });
+    navigateToURL(urlInput.value);
+    urlInput.blur();
+  }
+});
+
+// Prevent URL input keystrokes from being forwarded to remote
+urlInput.addEventListener("keydown", (e) => {
+  e.stopPropagation();
+}, true);
+urlInput.addEventListener("keyup", (e) => {
+  e.stopPropagation();
+}, true);
 
 // --- Binary protocol helpers ---
 function packHeader(opcode, payloadLen) {
@@ -192,6 +728,7 @@ function mapButton(e) {
 function onMouseMove(e) {
   if (!connected) return;
   const [x, y] = videoCoords(e);
+  traceMouseMove({ x, y, buttons: e.buttons });
   sendMouseMove(x, y);
 }
 
@@ -200,6 +737,7 @@ function onMouseDown(e) {
   e.preventDefault();
   imeInput.focus();
   const [x, y] = videoCoords(e);
+  debugLog("input", "mouse_down", { x, y, button: e.button });
   sendMouseMove(x, y);
   sendButtonDown(mapButton(e));
 }
@@ -207,6 +745,7 @@ function onMouseDown(e) {
 function onMouseUp(e) {
   if (!connected) return;
   e.preventDefault();
+  debugLog("input", "mouse_up", { button: e.button });
   sendButtonUp(mapButton(e));
 }
 
@@ -215,6 +754,7 @@ function onWheel(e) {
   e.preventDefault();
   const dx = Math.round(e.deltaX);
   const dy = Math.round(e.deltaY);
+  debugLog("input", "wheel", { deltaX: dx, deltaY: dy });
   sendScroll(dx, dy);
 }
 
@@ -225,23 +765,32 @@ function onContextMenu(e) {
 function onKeyDown(e) {
   if (!connected) return;
   if (e.isComposing || e.keyCode === 229) return;
-  // Don't prevent Tab if not connected
+  // Don't capture if URL input is focused
+  if (document.activeElement === urlInput) return;
   e.preventDefault();
   const ks = keyToKeysym(e);
-  if (ks) sendKeyDown(ks);
+  if (ks) {
+    debugLog("input", "key_down", { key: e.key, code: e.code, keysym: ks });
+    sendKeyDown(ks);
+  }
 }
 
 function onKeyUp(e) {
   if (!connected) return;
   if (e.isComposing || e.keyCode === 229) return;
+  if (document.activeElement === urlInput) return;
   e.preventDefault();
   const ks = keyToKeysym(e);
-  if (ks) sendKeyUp(ks);
+  if (ks) {
+    debugLog("input", "key_up", { key: e.key, code: e.code, keysym: ks });
+    sendKeyUp(ks);
+  }
 }
 
-function onCompositionStart() { isComposing = true; }
+function onCompositionStart() { isComposing = true; debugLog("input", "composition_start"); }
 function onCompositionEnd(e) {
   isComposing = false;
+  debugLog("input", "composition_end", { data: e.data });
   if (e.data) sendInsertText(e.data);
   imeInput.value = "";
 }
@@ -249,12 +798,15 @@ function onCompositionEnd(e) {
 // --- WebRTC ---
 async function connect() {
   if (connected) return;
-  setStatus("Requesting offer...");
+  setStatus("connecting", "Requesting offer...");
+  debugLog("webrtc", "connect_start");
   let offer;
   try {
     offer = await invoke("view.start", {});
+    debugLog("webrtc", "offer_received", { sdpBytes: offer.offer_sdp ? offer.offer_sdp.length : 0, candidates: (offer.candidates || []).length });
   } catch (err) {
-    setStatus("Failed: " + (err.message || err));
+    setStatus("error", "Failed: " + (err.message || err));
+    debugLog("webrtc", "offer_failed", { message: err.message });
     return;
   }
 
@@ -266,8 +818,10 @@ async function connect() {
 
   const config = { iceServers: iceServers.length > 0 ? iceServers : [{ urls: "stun:stun.l.google.com:19302" }] };
   pc = new RTCPeerConnection(config);
+  debugLog("webrtc", "pc_created", { iceServers: config.iceServers.length });
 
   pc.ontrack = (e) => {
+    debugLog("webrtc", "track", { kind: e.track.kind, streams: e.streams ? e.streams.length : 0 });
     if (e.streams && e.streams[0]) {
       videoEl.srcObject = e.streams[0];
     } else {
@@ -282,23 +836,45 @@ async function connect() {
   pc.ondatachannel = (e) => {
     dc = e.channel;
     dc.binaryType = "arraybuffer";
-    dc.onopen = () => { setConnected(true); imeInput.focus(); };
-    dc.onclose = () => { cleanup(); };
+    debugLog("webrtc", "datachannel", { label: dc.label });
+    dc.onopen = () => {
+      debugLog("webrtc", "datachannel_open");
+      setConnected(true);
+      imeInput.focus();
+      // Start tab polling once connected
+      fetchTabs();
+      startTabPolling();
+    };
+    dc.onclose = () => {
+      debugLog("webrtc", "datachannel_close");
+      cleanup();
+    };
   };
 
   pc.oniceconnectionstatechange = () => {
-    setStatus("ICE: " + pc.iceConnectionState);
-    if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected") {
+    const state = pc.iceConnectionState;
+    debugLog("webrtc", "ice_state", { state });
+    if (state === "connected" || state === "completed") {
+      setStatus("connected", "Connected");
+    } else if (state === "failed") {
+      setStatus("error", "ICE failed");
       cleanup();
+    } else if (state === "disconnected") {
+      setStatus("error", "ICE disconnected");
+      cleanup();
+    } else if (state === "checking") {
+      setStatus("connecting", "ICE: " + state);
     }
   };
 
   // Set remote offer
-  setStatus("Setting remote offer...");
+  setStatus("connecting", "Setting remote offer...");
   try {
     await pc.setRemoteDescription({ type: "offer", sdp: offer.offer_sdp });
+    debugLog("webrtc", "set_remote_description_done");
   } catch (err) {
-    setStatus("SDP error: " + err.message);
+    setStatus("error", "SDP error: " + err.message);
+    debugLog("webrtc", "set_remote_description_failed", { message: err.message });
     cleanup();
     return;
   }
@@ -313,14 +889,15 @@ async function connect() {
         sdpMid: c.sdpMid || null,
       }));
     } catch (err) {
-      console.warn("Failed to add remote candidate:", err);
+      debugLog("webrtc", "remote_candidate_failed", { message: err.message });
     }
   }
 
   // Create answer
-  setStatus("Creating answer...");
+  setStatus("connecting", "Creating answer...");
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
+  debugLog("webrtc", "answer_created", { sdpBytes: answer.sdp.length });
 
   // Wait for ICE gathering complete
   const localCandidates = [];
@@ -340,35 +917,41 @@ async function connect() {
       }
     };
   });
+  debugLog("webrtc", "ice_gathering_done", { candidates: localCandidates.length });
 
   // Send answer
-  setStatus("Sending answer...");
+  setStatus("connecting", "Sending answer...");
   try {
     await invoke("view.answer", {
       answer_sdp: pc.localDescription.sdp,
       candidates: localCandidates,
     });
+    debugLog("webrtc", "answer_sent");
   } catch (err) {
-    setStatus("Answer failed: " + (err.message || err));
+    setStatus("error", "Answer failed: " + (err.message || err));
+    debugLog("webrtc", "answer_send_failed", { message: err.message });
     cleanup();
     return;
   }
 
-  setStatus("Waiting for connection...");
+  setStatus("connecting", "Waiting for connection...");
 }
 
 async function disconnect() {
+  debugLog("webrtc", "disconnect");
   try { await invoke("view.close", {}); } catch {}
   cleanup();
 }
 
 function cleanup() {
+  debugLog("webrtc", "cleanup");
   if (dc) { try { dc.close(); } catch {} dc = null; }
   if (pc) { try { pc.close(); } catch {} pc = null; }
   if (videoEl.srcObject) {
     videoEl.srcObject.getTracks().forEach(t => t.stop());
     videoEl.srcObject = null;
   }
+  stopTabPolling();
   setConnected(false);
 }
 
@@ -400,6 +983,17 @@ window.addEventListener("beforeunload", () => {
     cleanup();
   }
 });
+
+// Expose debug API on window
+window.__bbViewDebug = {
+  events: debugEvents,
+  enable: () => setDebugEnabled(true, "console"),
+  disable: () => setDebugEnabled(false, "console"),
+  dump: () => debugEvents.map(debugLine).join("\n"),
+};
+
+// Initial tab fetch (works even before WebRTC connection)
+fetchTabs();
 </script>
 </body>
 </html>
