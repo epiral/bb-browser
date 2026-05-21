@@ -67,6 +67,10 @@ const RECONNECT_DELAY_MS = 5000;
 const REGISTER_TIMEOUT_MS = 10000;
 const HEARTBEAT_INTERVAL_MS = 15000;
 
+const VIEWER_PORT = "3334";
+const VIEWER_API_BASE = `http://127.0.0.1:${VIEWER_PORT}`;
+let viewerProcess: ReturnType<typeof spawn> | null = null;
+
 const LOCAL_SITES_DIR = join(SHARED_DAEMON_DIR, "sites");
 const COMMUNITY_SITES_DIR = join(SHARED_DAEMON_DIR, "bb-sites");
 
@@ -140,6 +144,96 @@ async function daemonCommand(request: Request): Promise<Response> {
   if (!cachedDaemonInfo) cachedDaemonInfo = await readDaemonJson();
   if (!cachedDaemonInfo) throw new Error("No daemon.json found. Is the daemon running?");
   return httpJson<Response>("POST", "/command", cachedDaemonInfo, request, COMMAND_TIMEOUT);
+}
+
+// ---------------------------------------------------------------------------
+// Viewer sidecar management
+// ---------------------------------------------------------------------------
+
+function findViewerBinary(): string | null {
+  const localPath = join(SHARED_DAEMON_DIR, "bin", "bb-viewer");
+  if (existsSync(localPath)) return localPath;
+  // Fall back to PATH
+  return "bb-viewer";
+}
+
+async function ensureViewer(): Promise<void> {
+  if (viewerProcess && !viewerProcess.killed) {
+    try {
+      const resp = await fetch(`${VIEWER_API_BASE}/health`, { signal: AbortSignal.timeout(2000) });
+      if (resp.ok) return;
+    } catch {}
+    // Not healthy — kill and respawn
+    try { viewerProcess.kill(); } catch {}
+    viewerProcess = null;
+  }
+
+  const bin = findViewerBinary();
+  if (!bin) throw new Error("bb-viewer binary not found");
+
+  const cdpPort = cachedDaemonInfo?.cdpPort?.toString() || process.env.CDP_PORT || "9222";
+  const args = ["--api-only", "--cdp-port", cdpPort, "--port", VIEWER_PORT];
+
+  const turnUrl = process.env.TURN_URL;
+  const turnUser = process.env.TURN_USER;
+  const turnCred = process.env.TURN_CRED;
+  if (turnUrl) { args.push("--turn-url", turnUrl); }
+  if (turnUser) { args.push("--turn-user", turnUser); }
+  if (turnCred) { args.push("--turn-cred", turnCred); }
+
+  console.log(`${LOG_PREFIX} Spawning viewer: ${bin} ${args.join(" ")}`);
+  const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
+  viewerProcess = child;
+
+  child.stdout?.on("data", (d: Buffer) => {
+    const lines = d.toString().trim().split("\n");
+    for (const line of lines) console.log(`${LOG_PREFIX} [viewer] ${line}`);
+  });
+  child.stderr?.on("data", (d: Buffer) => {
+    const lines = d.toString().trim().split("\n");
+    for (const line of lines) console.error(`${LOG_PREFIX} [viewer] ${line}`);
+  });
+  child.on("exit", (code) => {
+    console.log(`${LOG_PREFIX} [viewer] exited with code ${code}`);
+    if (viewerProcess === child) viewerProcess = null;
+  });
+
+  // Wait for health check
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 300));
+    try {
+      const resp = await fetch(`${VIEWER_API_BASE}/health`, { signal: AbortSignal.timeout(2000) });
+      if (resp.ok) {
+        console.log(`${LOG_PREFIX} Viewer ready at port ${VIEWER_PORT}`);
+        return;
+      }
+    } catch {}
+  }
+  throw new Error("Viewer did not become healthy in 10s");
+}
+
+function stopViewer(): void {
+  if (viewerProcess && !viewerProcess.killed) {
+    console.log(`${LOG_PREFIX} Stopping viewer`);
+    try { viewerProcess.kill(); } catch {}
+    viewerProcess = null;
+  }
+}
+
+async function viewerCommand(path: string, body?: unknown): Promise<unknown> {
+  await ensureViewer();
+  const url = `${VIEWER_API_BASE}${path}`;
+  const opts: RequestInit = {
+    method: body ? "POST" : "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+    signal: AbortSignal.timeout(15000),
+  };
+  const resp = await fetch(url, opts);
+  const text = await resp.text();
+  if (!resp.ok) throw new Error(`Viewer ${path} failed (${resp.status}): ${text}`);
+  try { return JSON.parse(text); } catch { return { output: text }; }
 }
 
 // ---------------------------------------------------------------------------
@@ -296,15 +390,66 @@ function buildPlatformClips(): PlatformClip[] {
 // ---------------------------------------------------------------------------
 
 const BROWSER_COMMANDS = COMMANDS.filter((c) => c.category !== "site");
-const BROWSER_COMMAND_NAMES = BROWSER_COMMANDS.map((c) => c.name);
+
+const VIEW_COMMANDS = [
+  {
+    name: "view.start",
+    description: "Start remote viewing: creates a WebRTC peer and returns offer SDP + ICE candidates",
+    inputSchema: JSON.stringify({ type: "object", properties: {}, additionalProperties: true }),
+  },
+  {
+    name: "view.answer",
+    description: "Complete WebRTC connection: accepts answer SDP + ICE candidates, starts video streaming",
+    inputSchema: JSON.stringify({
+      type: "object",
+      properties: {
+        answer_sdp: { type: "string", description: "Answer SDP from the remote peer" },
+        candidates: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              candidate: { type: "string" },
+              sdpMLineIndex: { type: "number" },
+            },
+            required: ["candidate", "sdpMLineIndex"],
+          },
+          description: "ICE candidates from the remote peer",
+        },
+      },
+      required: ["answer_sdp"],
+      additionalProperties: true,
+    }),
+  },
+  {
+    name: "view.close",
+    description: "Stop remote viewing and close the WebRTC peer",
+    inputSchema: JSON.stringify({ type: "object", properties: {}, additionalProperties: true }),
+  },
+];
+
+const BROWSER_COMMAND_NAMES = [
+  ...BROWSER_COMMANDS.map((c) => c.name),
+  "view.start",
+  "view.answer",
+  "view.close",
+];
 
 function buildClipRegistrations() {
-  const browserCommands = BROWSER_COMMANDS.map((cmd) => ({
-    name: cmd.name,
-    description: cmd.description,
-    input: JSON.stringify(zodToJsonSchema(cmd.args)),
-    output: JSON.stringify({ type: "object", additionalProperties: true }),
-  }));
+  const browserCommands = [
+    ...BROWSER_COMMANDS.map((cmd) => ({
+      name: cmd.name,
+      description: cmd.description,
+      input: JSON.stringify(zodToJsonSchema(cmd.args)),
+      output: JSON.stringify({ type: "object", additionalProperties: true }),
+    })),
+    ...VIEW_COMMANDS.map((cmd) => ({
+      name: cmd.name,
+      description: cmd.description,
+      input: cmd.inputSchema,
+      output: JSON.stringify({ type: "object", additionalProperties: true }),
+    })),
+  ];
 
   const platformClips = buildPlatformClips();
 
@@ -661,7 +806,13 @@ class HubBridge {
       const input = decodeInput(inv.input);
       let result: unknown;
 
-      if (clipName === BROWSER_CLIP_ALIAS) {
+      if (clipName === BROWSER_CLIP_ALIAS && command === "view.start") {
+        result = await viewerCommand("/peer/create");
+      } else if (clipName === BROWSER_CLIP_ALIAS && command === "view.answer") {
+        result = await viewerCommand("/peer/answer", input);
+      } else if (clipName === BROWSER_CLIP_ALIAS && command === "view.close") {
+        result = await viewerCommand("/peer/close");
+      } else if (clipName === BROWSER_CLIP_ALIAS) {
         result = await executeBrowserCommand(command, input);
       } else if (this.platformClipAliases.has(clipName)) {
         result = await executeSiteCommand(clipName, command, input);
@@ -806,8 +957,8 @@ function main(): void {
 
   const bridge = new HubBridge(hubUrl, platformClips);
 
-  process.on("SIGINT", () => { bridge.stop(); process.exit(0); });
-  process.on("SIGTERM", () => { bridge.stop(); process.exit(0); });
+  process.on("SIGINT", () => { stopViewer(); bridge.stop(); process.exit(0); });
+  process.on("SIGTERM", () => { stopViewer(); bridge.stop(); process.exit(0); });
   process.on("unhandledRejection", (r) => { console.error(`${LOG_PREFIX} Unhandled rejection: ${r instanceof Error ? r.message : r}`); });
   process.on("uncaughtException", (e) => { console.error(`${LOG_PREFIX} Uncaught exception: ${e instanceof Error ? e.message : e}`); });
 
