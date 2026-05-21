@@ -8,10 +8,15 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; overflow: hidden; background: #0a0a0a; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; }
 #app { display: flex; flex-direction: column; height: 100%; }
-#toolbar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: #1a1a1a; border-bottom: 1px solid #2a2a2a; flex-shrink: 0; }
-#toolbar button { padding: 4px 14px; border: 1px solid #444; border-radius: 4px; background: #2a2a2a; color: #e0e0e0; cursor: pointer; font-size: 13px; }
-#toolbar button:hover { background: #3a3a3a; }
-#toolbar button.connected { border-color: #e55; background: #3a1a1a; }
+#toolbar { display: flex; align-items: center; gap: 8px; padding: 0 12px; height: 32px; background: #1a1a1a; flex-shrink: 0; }
+#toolbar button { padding: 4px 14px; border: 1px solid #2a8c4a; border-radius: 4px; background: #1a5c2e; color: #8f8; cursor: pointer; font-size: 13px; }
+#toolbar button:hover { background: #1f6b35; }
+#toolbar button.connected { border-color: #8c2a2a; background: #5c1a1a; color: #e0e0e0; }
+#toolbar button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
 
 /* Tab bar */
 #tab-bar {
@@ -129,6 +134,36 @@ html, body { height: 100%; overflow: hidden; background: #0a0a0a; color: #e0e0e0
 video { max-width: 100%; max-height: 100%; object-fit: contain; background: #000; }
 #ime-input { position: fixed; top: -100px; left: -100px; width: 1px; height: 1px; opacity: 0; }
 
+/* Video overlay (status message when not connected) */
+#video-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  color: #888;
+  font-size: 14px;
+  z-index: 5;
+  pointer-events: none;
+}
+#video-overlay.hidden { display: none; }
+
+/* Input overlay (captures mouse events over video) */
+#input-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  cursor: default;
+}
+#input-overlay.active { cursor: crosshair; }
+
+/* Tab/URL bar dimming when disconnected */
+#tab-bar.dimmed, #url-bar.dimmed {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 /* Status bar */
 #status-bar {
   height: 24px;
@@ -155,8 +190,11 @@ video { max-width: 100%; max-height: 100%; object-fit: contain; background: #000
 #status-bar .status-dot.connecting { background: #ff9800; }
 #status-bar .status-dot.error { background: #f44; }
 
-#debug-toggle {
+#status-resolution {
   margin-left: auto;
+}
+
+#debug-toggle {
   height: 18px;
   padding: 0 8px;
   background: #252525;
@@ -229,6 +267,7 @@ video { max-width: 100%; max-height: 100%; object-fit: contain; background: #000
 <body>
 <div id="app">
   <div id="toolbar">
+    <span style="font-size:13px;color:#888;margin-right:auto">Remote Browser</span>
     <button id="btn-connect">Connect</button>
   </div>
   <div id="tab-bar">
@@ -243,6 +282,8 @@ video { max-width: 100%; max-height: 100%; object-fit: contain; background: #000
   </div>
   <div id="video-container">
     <video id="video" autoplay playsinline muted></video>
+    <div id="video-overlay">Click Connect to start</div>
+    <div id="input-overlay"></div>
   </div>
   <div id="status-bar">
     <span class="status-dot" id="status-dot"></span>
@@ -293,6 +334,8 @@ let videoEl = document.getElementById("video");
 let btnConnect = document.getElementById("btn-connect");
 let imeInput = document.getElementById("ime-input");
 let videoContainer = document.getElementById("video-container");
+let videoOverlay = document.getElementById("video-overlay");
+let inputOverlay = document.getElementById("input-overlay");
 let isComposing = false;
 
 // UI elements
@@ -405,6 +448,15 @@ function setConnected(state) {
   connected = state;
   btnConnect.textContent = state ? "Disconnect" : "Connect";
   btnConnect.classList.toggle("connected", state);
+  btnConnect.disabled = false;
+  // Video overlay
+  videoOverlay.classList.toggle("hidden", state);
+  if (!state) videoOverlay.textContent = "Click Connect to start";
+  // Input overlay cursor
+  inputOverlay.classList.toggle("active", state);
+  // Tab/URL bar dimming
+  tabBar.classList.toggle("dimmed", !state);
+  document.getElementById("url-bar").classList.toggle("dimmed", !state);
   if (state) {
     setStatus("connected", "Connected");
   } else {
@@ -798,6 +850,9 @@ function onCompositionEnd(e) {
 // --- WebRTC ---
 async function connect() {
   if (connected) return;
+  btnConnect.disabled = true;
+  videoOverlay.textContent = "Connecting...";
+  videoOverlay.classList.remove("hidden");
   setStatus("connecting", "Requesting offer...");
   debugLog("webrtc", "connect_start");
   let offer;
@@ -807,6 +862,8 @@ async function connect() {
   } catch (err) {
     setStatus("error", "Failed: " + (err.message || err));
     debugLog("webrtc", "offer_failed", { message: err.message });
+    btnConnect.disabled = false;
+    videoOverlay.textContent = "Click Connect to start";
     return;
   }
 
@@ -956,11 +1013,11 @@ function cleanup() {
 }
 
 // --- Event binding ---
-videoEl.addEventListener("mousemove", onMouseMove);
-videoEl.addEventListener("mousedown", onMouseDown);
-videoEl.addEventListener("mouseup", onMouseUp);
-videoEl.addEventListener("wheel", onWheel, { passive: false });
-videoEl.addEventListener("contextmenu", onContextMenu);
+inputOverlay.addEventListener("mousemove", onMouseMove);
+inputOverlay.addEventListener("mousedown", onMouseDown);
+inputOverlay.addEventListener("mouseup", onMouseUp);
+inputOverlay.addEventListener("wheel", onWheel, { passive: false });
+inputOverlay.addEventListener("contextmenu", onContextMenu);
 
 document.addEventListener("keydown", onKeyDown);
 document.addEventListener("keyup", onKeyUp);
@@ -973,8 +1030,8 @@ btnConnect.addEventListener("click", () => {
   else connect();
 });
 
-// Focus IME input on video click
-videoEl.addEventListener("click", () => { imeInput.focus(); });
+// Focus IME input on overlay click
+inputOverlay.addEventListener("click", () => { imeInput.focus(); });
 
 // Cleanup on page unload
 window.addEventListener("beforeunload", () => {
@@ -991,6 +1048,10 @@ window.__bbViewDebug = {
   disable: () => setDebugEnabled(false, "console"),
   dump: () => debugEvents.map(debugLine).join("\n"),
 };
+
+// Initial UI state: dim tab/URL bar until connected
+tabBar.classList.add("dimmed");
+document.getElementById("url-bar").classList.add("dimmed");
 
 // Initial tab fetch (works even before WebRTC connection)
 fetchTabs();
