@@ -24,6 +24,9 @@ import {
   HeartbeatSchema,
   HubErrorSchema,
 } from "@pinixai/hub-client";
+// GetClipWebResultSchema is not re-exported from @pinixai/hub-client index;
+// import directly from the gen file via relative path to node_modules.
+import { GetClipWebResultSchema, type GetClipWebCommand } from "../node_modules/@pinixai/hub-client/src/gen/hub_pb.ts";
 import { COMMANDS } from "../packages/shared/src/commands.ts";
 import { COMMAND_TIMEOUT, generateId } from "../packages/shared/src/index.ts";
 import type { Request, Response } from "../packages/shared/src/protocol.ts";
@@ -459,7 +462,7 @@ function buildClipRegistrations() {
     version: CLIP_VERSION,
     domain: BROWSER_CLIP_DOMAIN,
     commands: browserCommands,
-    hasWeb: false,
+    hasWeb: true,
     dependencies: [],
     tokenProtected: false,
   });
@@ -780,7 +783,10 @@ class HubBridge {
           }
           case "invokeInput": break; // unary commands only
           case "pong": break;
-          case "getClipWebCommand": break; // no web assets
+          case "getClipWebCommand": {
+            void this.handleGetClipWeb(queue, msg.payload.value);
+            break;
+          }
           default: break;
         }
       }
@@ -835,6 +841,115 @@ class HubBridge {
       this.sendDataResult(queue, requestId, output, undefined);
     } catch (err) {
       this.sendDataResult(queue, requestId, undefined, err);
+    }
+  }
+
+  private async handleGetClipWeb(queue: AsyncMessageQueue<ProviderMessage>, cmd: GetClipWebCommand): Promise<void> {
+    const requestId = cmd.requestId?.trim();
+    if (!requestId) return;
+
+    try {
+      let filePath = cmd.path?.trim() || "";
+      // Default to view.html
+      if (!filePath || filePath === "/" || filePath === "index.html") filePath = "view.html";
+      // Strip leading slash
+      if (filePath.startsWith("/")) filePath = filePath.slice(1);
+
+      // Security: prevent directory traversal
+      if (filePath.includes("..") || filePath.startsWith("/")) {
+        throw new Error("Invalid path");
+      }
+
+      // Resolve relative to web/ directory alongside the source file
+      const currentDir = dirname(fileURLToPath(import.meta.url));
+      const webDir = resolve(currentDir, "../web");
+      const fullPath = join(webDir, filePath);
+
+      // Ensure the resolved path is within webDir
+      const resolvedFull = resolve(fullPath);
+      const resolvedWeb = resolve(webDir);
+      if (!resolvedFull.startsWith(resolvedWeb)) {
+        throw new Error("Invalid path");
+      }
+
+      const content = await readFileAsync(fullPath);
+
+      // Content type
+      const ext = extname(filePath).toLowerCase();
+      const MIME_MAP: Record<string, string> = {
+        ".html": "text/html; charset=utf-8",
+        ".js": "application/javascript; charset=utf-8",
+        ".mjs": "application/javascript; charset=utf-8",
+        ".css": "text/css; charset=utf-8",
+        ".json": "application/json; charset=utf-8",
+        ".svg": "image/svg+xml",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".ico": "image/x-icon",
+        ".woff": "font/woff",
+        ".woff2": "font/woff2",
+        ".ttf": "font/ttf",
+      };
+      const contentType = MIME_MAP[ext] || "application/octet-stream";
+
+      // ETag based on content length (simple)
+      const etag = `"${content.length.toString(16)}"`;
+
+      // Handle if-none-match
+      if (cmd.ifNoneMatch && cmd.ifNoneMatch === etag) {
+        queue.push(create(ProviderMessageSchema, {
+          payload: {
+            case: "getClipWebResult",
+            value: create(GetClipWebResultSchema, {
+              requestId,
+              notModified: true,
+              etag,
+              totalSize: BigInt(content.length),
+            }),
+          },
+        }));
+        return;
+      }
+
+      // Handle range requests (offset/length)
+      const offset = Number(cmd.offset || 0n);
+      const length = Number(cmd.length || 0n);
+      let slice: Uint8Array;
+      if (length > 0) {
+        slice = new Uint8Array(content.buffer, content.byteOffset + offset, Math.min(length, content.length - offset));
+      } else if (offset > 0) {
+        slice = new Uint8Array(content.buffer, content.byteOffset + offset);
+      } else {
+        slice = new Uint8Array(content);
+      }
+
+      queue.push(create(ProviderMessageSchema, {
+        payload: {
+          case: "getClipWebResult",
+          value: create(GetClipWebResultSchema, {
+            requestId,
+            content: slice,
+            contentType,
+            etag,
+            totalSize: BigInt(content.length),
+          }),
+        },
+      }));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const code = message === "Invalid path" ? "invalid_argument" : "not_found";
+      queue.push(create(ProviderMessageSchema, {
+        payload: {
+          case: "getClipWebResult",
+          value: create(GetClipWebResultSchema, {
+            requestId,
+            error: create(HubErrorSchema, { code, message }),
+          }),
+        },
+      }));
     }
   }
 

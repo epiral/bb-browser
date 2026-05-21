@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remote Browser</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; background: #0a0a0a; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; }
+#app { display: flex; flex-direction: column; height: 100%; }
+#toolbar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: #1a1a1a; border-bottom: 1px solid #2a2a2a; flex-shrink: 0; }
+#toolbar button { padding: 4px 14px; border: 1px solid #444; border-radius: 4px; background: #2a2a2a; color: #e0e0e0; cursor: pointer; font-size: 13px; }
+#toolbar button:hover { background: #3a3a3a; }
+#toolbar button.connected { border-color: #e55; background: #3a1a1a; }
+#status { font-size: 12px; color: #888; margin-left: auto; }
+#video-container { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; background: #000; }
+video { max-width: 100%; max-height: 100%; object-fit: contain; background: #000; }
+#ime-input { position: fixed; top: -100px; left: -100px; width: 1px; height: 1px; opacity: 0; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="toolbar">
+    <button id="btn-connect">Connect</button>
+    <span id="status">Disconnected</span>
+  </div>
+  <div id="video-container">
+    <video id="video" autoplay playsinline muted></video>
+  </div>
+</div>
+<textarea id="ime-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+
+<script type="module">
+import { invoke } from "https://esm.sh/@pinixai/core@0.5.2/web";
+
+// --- State ---
+let pc = null;
+let dc = null;
+let connected = false;
+let videoEl = document.getElementById("video");
+let btnConnect = document.getElementById("btn-connect");
+let statusEl = document.getElementById("status");
+let imeInput = document.getElementById("ime-input");
+let videoContainer = document.getElementById("video-container");
+let isComposing = false;
+
+// --- UI ---
+function setStatus(text) { statusEl.textContent = text; }
+
+function setConnected(state) {
+  connected = state;
+  btnConnect.textContent = state ? "Disconnect" : "Connect";
+  btnConnect.classList.toggle("connected", state);
+  setStatus(state ? "Connected" : "Disconnected");
+}
+
+// --- Binary protocol helpers ---
+function packHeader(opcode, payloadLen) {
+  const buf = new ArrayBuffer(3 + payloadLen);
+  const view = new DataView(buf);
+  view.setUint8(0, opcode);
+  view.setUint16(1, payloadLen);
+  return { buf, view };
+}
+
+function sendMouseMove(x, y) {
+  if (!dc || dc.readyState !== "open") return;
+  const { buf, view } = packHeader(0x01, 4);
+  view.setUint16(3, x);
+  view.setUint16(5, y);
+  dc.send(buf);
+}
+
+function sendScroll(dx, dy) {
+  if (!dc || dc.readyState !== "open") return;
+  const { buf, view } = packHeader(0x02, 4);
+  view.setInt16(3, dx);
+  view.setInt16(5, dy);
+  dc.send(buf);
+}
+
+function sendKeyDown(keysym) {
+  if (!dc || dc.readyState !== "open") return;
+  const { buf, view } = packHeader(0x03, 4);
+  view.setUint32(3, keysym);
+  dc.send(buf);
+}
+
+function sendKeyUp(keysym) {
+  if (!dc || dc.readyState !== "open") return;
+  const { buf, view } = packHeader(0x04, 4);
+  view.setUint32(3, keysym);
+  dc.send(buf);
+}
+
+function sendButtonDown(button) {
+  if (!dc || dc.readyState !== "open") return;
+  const { buf, view } = packHeader(0x05, 1);
+  view.setUint8(3, button);
+  dc.send(buf);
+}
+
+function sendButtonUp(button) {
+  if (!dc || dc.readyState !== "open") return;
+  const { buf, view } = packHeader(0x06, 1);
+  view.setUint8(3, button);
+  dc.send(buf);
+}
+
+function sendInsertText(text) {
+  if (!dc || dc.readyState !== "open") return;
+  const encoded = new TextEncoder().encode(text);
+  const { buf, view } = packHeader(0x07, encoded.length);
+  new Uint8Array(buf).set(encoded, 3);
+  dc.send(buf);
+}
+
+// --- Keysym mapping ---
+const SPECIAL_KEYS = {
+  Backspace: 0xFF08, Tab: 0xFF09, Enter: 0xFF0D, Escape: 0xFF1B,
+  Delete: 0xFFFF, Home: 0xFF50, End: 0xFF57,
+  PageUp: 0xFF55, PageDown: 0xFF56,
+  ArrowLeft: 0xFF51, ArrowUp: 0xFF52, ArrowRight: 0xFF53, ArrowDown: 0xFF54,
+  ShiftLeft: 0xFFE1, ShiftRight: 0xFFE2,
+  ControlLeft: 0xFFE3, ControlRight: 0xFFE4,
+  AltLeft: 0xFFE9, AltRight: 0xFFEA,
+  MetaLeft: 0xFFEB, MetaRight: 0xFFEC,
+  CapsLock: 0xFFE5, NumLock: 0xFF7F, ScrollLock: 0xFF14,
+  Insert: 0xFF63, Pause: 0xFF13, PrintScreen: 0xFF61,
+  F1: 0xFFBE, F2: 0xFFBF, F3: 0xFFC0, F4: 0xFFC1,
+  F5: 0xFFC2, F6: 0xFFC3, F7: 0xFFC4, F8: 0xFFC5,
+  F9: 0xFFC6, F10: 0xFFC7, F11: 0xFFC8, F12: 0xFFC9,
+  Space: 0x0020,
+};
+
+function keyToKeysym(e) {
+  if (SPECIAL_KEYS[e.code]) return SPECIAL_KEYS[e.code];
+  if (SPECIAL_KEYS[e.key]) return SPECIAL_KEYS[e.key];
+  // Modifier keys by key name
+  if (e.key === "Shift") return 0xFFE1;
+  if (e.key === "Control") return 0xFFE3;
+  if (e.key === "Alt") return 0xFFE9;
+  if (e.key === "Meta") return 0xFFEB;
+  // Printable ASCII
+  if (e.key.length === 1) {
+    const code = e.key.charCodeAt(0);
+    if (code >= 0x20 && code <= 0x7E) return code;
+  }
+  return 0;
+}
+
+// --- Mouse coordinate mapping ---
+function videoCoords(e) {
+  const rect = videoEl.getBoundingClientRect();
+  const vw = videoEl.videoWidth || 1;
+  const vh = videoEl.videoHeight || 1;
+  // Compute displayed area within the element (object-fit: contain)
+  const scale = Math.min(rect.width / vw, rect.height / vh);
+  const dw = vw * scale;
+  const dh = vh * scale;
+  const ox = (rect.width - dw) / 2;
+  const oy = (rect.height - dh) / 2;
+  const lx = e.clientX - rect.left - ox;
+  const ly = e.clientY - rect.top - oy;
+  const x = Math.round((lx / dw) * vw);
+  const y = Math.round((ly / dh) * vh);
+  return [Math.max(0, Math.min(vw, x)), Math.max(0, Math.min(vh, y))];
+}
+
+function mapButton(e) {
+  // 0=left, 1=middle, 2=right
+  if (e.button === 0) return 1;
+  if (e.button === 1) return 2;
+  if (e.button === 2) return 3;
+  return 1;
+}
+
+// --- Event handlers ---
+function onMouseMove(e) {
+  if (!connected) return;
+  const [x, y] = videoCoords(e);
+  sendMouseMove(x, y);
+}
+
+function onMouseDown(e) {
+  if (!connected) return;
+  e.preventDefault();
+  imeInput.focus();
+  const [x, y] = videoCoords(e);
+  sendMouseMove(x, y);
+  sendButtonDown(mapButton(e));
+}
+
+function onMouseUp(e) {
+  if (!connected) return;
+  e.preventDefault();
+  sendButtonUp(mapButton(e));
+}
+
+function onWheel(e) {
+  if (!connected) return;
+  e.preventDefault();
+  const dx = Math.round(e.deltaX);
+  const dy = Math.round(e.deltaY);
+  sendScroll(dx, dy);
+}
+
+function onContextMenu(e) {
+  if (connected) e.preventDefault();
+}
+
+function onKeyDown(e) {
+  if (!connected) return;
+  if (e.isComposing || e.keyCode === 229) return;
+  // Don't prevent Tab if not connected
+  e.preventDefault();
+  const ks = keyToKeysym(e);
+  if (ks) sendKeyDown(ks);
+}
+
+function onKeyUp(e) {
+  if (!connected) return;
+  if (e.isComposing || e.keyCode === 229) return;
+  e.preventDefault();
+  const ks = keyToKeysym(e);
+  if (ks) sendKeyUp(ks);
+}
+
+function onCompositionStart() { isComposing = true; }
+function onCompositionEnd(e) {
+  isComposing = false;
+  if (e.data) sendInsertText(e.data);
+  imeInput.value = "";
+}
+
+// --- WebRTC ---
+async function connect() {
+  if (connected) return;
+  setStatus("Requesting offer...");
+  let offer;
+  try {
+    offer = await invoke("view.start", {});
+  } catch (err) {
+    setStatus("Failed: " + (err.message || err));
+    return;
+  }
+
+  const iceServers = (offer.ice_servers || []).map(s => ({
+    urls: s.urls || [],
+    username: s.username || undefined,
+    credential: s.credential || undefined,
+  })).filter(s => s.urls.length > 0);
+
+  const config = { iceServers: iceServers.length > 0 ? iceServers : [{ urls: "stun:stun.l.google.com:19302" }] };
+  pc = new RTCPeerConnection(config);
+
+  pc.ontrack = (e) => {
+    if (e.streams && e.streams[0]) {
+      videoEl.srcObject = e.streams[0];
+    } else {
+      const stream = new MediaStream();
+      stream.addTrack(e.track);
+      videoEl.srcObject = stream;
+    }
+    try { videoEl.playoutDelayHint = 0; } catch {}
+    try { videoEl.jitterBufferTarget = 0; } catch {}
+  };
+
+  pc.ondatachannel = (e) => {
+    dc = e.channel;
+    dc.binaryType = "arraybuffer";
+    dc.onopen = () => { setConnected(true); imeInput.focus(); };
+    dc.onclose = () => { cleanup(); };
+  };
+
+  pc.oniceconnectionstatechange = () => {
+    setStatus("ICE: " + pc.iceConnectionState);
+    if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected") {
+      cleanup();
+    }
+  };
+
+  // Set remote offer
+  setStatus("Setting remote offer...");
+  try {
+    await pc.setRemoteDescription({ type: "offer", sdp: offer.offer_sdp });
+  } catch (err) {
+    setStatus("SDP error: " + err.message);
+    cleanup();
+    return;
+  }
+
+  // Add remote ICE candidates
+  const remoteCandidates = offer.candidates || [];
+  for (const c of remoteCandidates) {
+    try {
+      await pc.addIceCandidate(new RTCIceCandidate({
+        candidate: c.candidate,
+        sdpMLineIndex: c.sdpMLineIndex,
+        sdpMid: c.sdpMid || null,
+      }));
+    } catch (err) {
+      console.warn("Failed to add remote candidate:", err);
+    }
+  }
+
+  // Create answer
+  setStatus("Creating answer...");
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+
+  // Wait for ICE gathering complete
+  const localCandidates = [];
+  await new Promise((resolve) => {
+    if (pc.iceGatheringState === "complete") { resolve(); return; }
+    const timeout = setTimeout(resolve, 5000);
+    pc.onicegatheringstatechange = () => {
+      if (pc.iceGatheringState === "complete") { clearTimeout(timeout); resolve(); }
+    };
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        localCandidates.push({
+          candidate: e.candidate.candidate,
+          sdpMLineIndex: e.candidate.sdpMLineIndex,
+          sdpMid: e.candidate.sdpMid || "",
+        });
+      }
+    };
+  });
+
+  // Send answer
+  setStatus("Sending answer...");
+  try {
+    await invoke("view.answer", {
+      answer_sdp: pc.localDescription.sdp,
+      candidates: localCandidates,
+    });
+  } catch (err) {
+    setStatus("Answer failed: " + (err.message || err));
+    cleanup();
+    return;
+  }
+
+  setStatus("Waiting for connection...");
+}
+
+async function disconnect() {
+  try { await invoke("view.close", {}); } catch {}
+  cleanup();
+}
+
+function cleanup() {
+  if (dc) { try { dc.close(); } catch {} dc = null; }
+  if (pc) { try { pc.close(); } catch {} pc = null; }
+  if (videoEl.srcObject) {
+    videoEl.srcObject.getTracks().forEach(t => t.stop());
+    videoEl.srcObject = null;
+  }
+  setConnected(false);
+}
+
+// --- Event binding ---
+videoEl.addEventListener("mousemove", onMouseMove);
+videoEl.addEventListener("mousedown", onMouseDown);
+videoEl.addEventListener("mouseup", onMouseUp);
+videoEl.addEventListener("wheel", onWheel, { passive: false });
+videoEl.addEventListener("contextmenu", onContextMenu);
+
+document.addEventListener("keydown", onKeyDown);
+document.addEventListener("keyup", onKeyUp);
+
+imeInput.addEventListener("compositionstart", onCompositionStart);
+imeInput.addEventListener("compositionend", onCompositionEnd);
+
+btnConnect.addEventListener("click", () => {
+  if (connected) disconnect();
+  else connect();
+});
+
+// Focus IME input on video click
+videoEl.addEventListener("click", () => { imeInput.focus(); });
+
+// Cleanup on page unload
+window.addEventListener("beforeunload", () => {
+  if (connected) {
+    try { invoke("view.close", {}); } catch {}
+    cleanup();
+  }
+});
+</script>
+</body>
+</html>
