@@ -44,6 +44,7 @@ import { execFile } from "node:child_process";
 import { join, dirname, resolve, relative, extname } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { createHmac } from "node:crypto";
 import type { z } from "zod";
 
 declare const process: {
@@ -150,6 +151,17 @@ async function daemonCommand(request: Request): Promise<Response> {
 }
 
 // ---------------------------------------------------------------------------
+// TURN ephemeral credentials (TURN REST API / RFC 7635 time-limited)
+// ---------------------------------------------------------------------------
+
+function generateTurnCredentials(secret: string, ttlSeconds = 86400): { username: string; password: string } {
+  const expiry = Math.floor(Date.now() / 1000) + ttlSeconds;
+  const username = `${expiry}:bbviewer`;
+  const password = createHmac("sha1", secret).update(username).digest("base64");
+  return { username, password };
+}
+
+// ---------------------------------------------------------------------------
 // Viewer sidecar management
 // ---------------------------------------------------------------------------
 
@@ -177,12 +189,18 @@ async function ensureViewer(): Promise<void> {
   const cdpPort = cachedDaemonInfo?.cdpPort?.toString() || process.env.CDP_PORT || "9222";
   const args = ["--api-only", "--cdp-port", cdpPort, "--port", VIEWER_PORT];
 
+  // Generate ephemeral TURN credentials (valid 24h). Both bb-viewer (Pion
+  // relay candidate gathering) and the frontend (WebRTC connection) use
+  // the same credentials. If the viewer runs >24h, it will be restarted
+  // with fresh credentials on the next view.start.
   const turnUrl = process.env.TURN_URL;
-  const turnUser = process.env.TURN_USER;
-  const turnCred = process.env.TURN_CRED;
-  if (turnUrl) { args.push("--turn-url", turnUrl); }
-  if (turnUser) { args.push("--turn-user", turnUser); }
-  if (turnCred) { args.push("--turn-cred", turnCred); }
+  const turnSecret = process.env.TURN_SECRET;
+  if (turnUrl && turnSecret) {
+    const { username, password } = generateTurnCredentials(turnSecret);
+    args.push("--turn-url", turnUrl, "--turn-user", username, "--turn-cred", password);
+  } else if (turnUrl) {
+    args.push("--turn-url", turnUrl);
+  }
 
   console.log(`${LOG_PREFIX} Spawning viewer: ${bin} ${args.join(" ")}`);
   const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
