@@ -26,6 +26,8 @@ export interface DaemonInfo {
   host: string;
   port: number;
   token: string;
+  cdpHost?: string;
+  cdpPort?: number;
 }
 
 // ---------------------------------------------------------------------------

@@ -22,6 +22,8 @@ export interface HttpServerOptions {
   port?: number;
   token?: string;
   cdp: CdpConnection;
+  cdpHost?: string;
+  cdpPort?: number;
   onShutdown?: () => void;
 }
 
@@ -31,6 +33,8 @@ export class HttpServer {
   private readonly port: number;
   private readonly token: string | null;
   private readonly cdp: CdpConnection;
+  private readonly cdpHost: string | null;
+  private readonly cdpPort: number | null;
   private readonly onShutdown?: () => void;
   private startTime = 0;
 
@@ -39,6 +43,8 @@ export class HttpServer {
     this.port = options.port ?? DAEMON_PORT;
     this.token = options.token ?? null;
     this.cdp = options.cdp;
+    this.cdpHost = options.cdpHost ?? null;
+    this.cdpPort = options.cdpPort ?? null;
     this.onShutdown = options.onShutdown;
   }
 
@@ -183,6 +189,8 @@ export class HttpServer {
     this.sendJson(res, 200, {
       running: true,
       cdpConnected: this.cdp.connected,
+      cdpHost: this.cdpHost,
+      cdpPort: this.cdpPort,
       uptime: this.uptime,
       currentSeq: this.cdp.tabManager.currentSeq(),
       currentTargetId: this.cdp.currentTargetId,

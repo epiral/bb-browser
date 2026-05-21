@@ -121,6 +121,8 @@ interface DaemonInfo {
   host: string;
   port: number;
   token: string;
+  cdpHost: string;
+  cdpPort: number;
 }
 
 function writeDaemonJson(info: DaemonInfo): void {
@@ -228,6 +230,8 @@ async function main(): Promise<void> {
     port: options.port,
     token: options.token,
     cdp,
+    cdpHost: cdpEndpoint.host,
+    cdpPort: cdpEndpoint.port,
     onShutdown: shutdown,
   });
 
@@ -240,6 +244,8 @@ async function main(): Promise<void> {
     host: options.host,
     port: options.port,
     token: options.token,
+    cdpHost: cdpEndpoint.host,
+    cdpPort: cdpEndpoint.port,
   });
 
   console.error(
