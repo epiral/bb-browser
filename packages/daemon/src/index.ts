@@ -248,6 +248,18 @@ async function main(): Promise<void> {
     cdpPort: cdpEndpoint.port,
   });
 
+  // Emit a machine-readable READY line on stdout so the tray supervisor
+  // (packages/tray-app/src-tauri/src/daemon_spawner.rs) can pick up the
+  // resolved ports and token. The prefix is fixed by `READY_PREFIX`; the
+  // payload is `ReadyInfo` in the Rust side (camelCase).
+  console.log(
+    `BB_DAEMON_READY ${JSON.stringify({
+      daemonPort: options.port,
+      cdpPort: cdpEndpoint.port,
+      token: options.token,
+    })}`,
+  );
+
   console.error(
     `[Daemon] HTTP server listening on http://${options.host}:${options.port}`,
   );

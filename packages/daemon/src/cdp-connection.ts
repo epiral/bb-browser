@@ -9,7 +9,9 @@
 
 import { request as httpRequest } from "node:http";
 import WebSocket from "ws";
+import type { TraceEvent } from "@bb-browser/shared";
 import { TabStateManager } from "./tab-state.js";
+import { TRACE_INJECTION_SCRIPT, TRACE_PREFIX } from "./trace-inject.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -229,6 +231,7 @@ export class CdpConnection {
         return;
       }
 
+
       // Flat-mode attach
       if (message.method === "Target.attachedToTarget") {
         const params = message.params as JsonObject;
@@ -338,6 +341,21 @@ export class CdpConnection {
       return;
     }
 
+    // Trace: re-inject event listeners after navigation + record main-frame nav
+    if (method === "Page.frameNavigated") {
+      if (tab.traceRecording) {
+        const frame = params.frame as JsonObject | undefined;
+        const isMainFrame = !!frame && !frame.parentId;
+        const newUrl = typeof frame?.url === "string" ? frame.url : "";
+        this.evaluate(targetId, TRACE_INJECTION_SCRIPT, true).catch(() => {});
+        if (isMainFrame && newUrl && !newUrl.startsWith("chrome-error://")) {
+          tab.addTraceNavigation(newUrl);
+        }
+      }
+      return;
+    }
+
+
     // Network events
     if (method === "Network.requestWillBeSent") {
       const requestId = typeof params.requestId === "string" ? params.requestId : undefined;
@@ -397,6 +415,51 @@ export class CdpConnection {
       // Chrome CDP sends "warning" for console.warn(); normalize it
       const consoleTypeMap: Record<string, string> = { warning: "warn" };
       const normalizedType = consoleTypeMap[type] || type;
+      // Trace: intercept console.log fallback from injected listeners
+      if (text.startsWith(TRACE_PREFIX) && tab.traceRecording) {
+        try {
+          const payload = text.slice(TRACE_PREFIX.length);
+          const parsed = JSON.parse(payload) as {
+            type: string; timestamp: number; url: string;
+            ref?: number; xpath?: string; cssSelector?: string;
+            value?: string; key?: string; direction?: string;
+            pixels?: number; checked?: boolean;
+            elementRole?: string; elementName?: string; elementTag?: string;
+          };
+          const allowedTypes = new Set(["click", "fill", "select", "press", "scroll", "check", "navigation"]);
+          if (!parsed || typeof parsed.type !== "string" || !allowedTypes.has(parsed.type)) {
+            return;
+          }
+          const direction = parsed.direction === "up" || parsed.direction === "down" ? parsed.direction : undefined;
+          const pickStr = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
+          const pickNum = (v: unknown): number | undefined => (typeof v === "number" ? v : undefined);
+          const pickBool = (v: unknown): boolean | undefined => (typeof v === "boolean" ? v : undefined);
+          if (parsed.type === "navigation") {
+            tab.addTraceNavigation(pickStr(parsed.url) ?? "");
+          } else {
+            tab.addTraceEvent({
+              type: parsed.type as TraceEvent["type"],
+              timestamp: typeof parsed.timestamp === "number" ? parsed.timestamp : Date.now(),
+              url: pickStr(parsed.url) ?? "",
+              ref: pickNum(parsed.ref),
+              xpath: pickStr(parsed.xpath),
+              cssSelector: pickStr(parsed.cssSelector),
+              value: pickStr(parsed.value),
+              key: pickStr(parsed.key),
+              direction,
+              pixels: pickNum(parsed.pixels),
+              checked: pickBool(parsed.checked),
+              elementRole: pickStr(parsed.elementRole),
+              elementName: pickStr(parsed.elementName),
+              elementTag: pickStr(parsed.elementTag),
+            });
+          }
+          return; // Don't add to regular console messages
+        } catch {
+          // Parse failed — fall through to regular console handler
+        }
+      }
+
       tab.addConsoleMessage({
         type: ["log", "info", "warn", "error", "debug"].includes(normalizedType)
           ? (normalizedType as "log" | "info" | "warn" | "error" | "debug")
@@ -619,6 +682,54 @@ export class CdpConnection {
       targetId,
       method,
       frameId ? { ...params, frameId } : params,
+    );
+  }
+
+  /** Inject trace event listeners into a page (start recording). */
+  async startTraceInjection(targetId: string): Promise<void> {
+    // Order matters: set the recording flag BEFORE running the injection script,
+    // so that when the script walks frames and copies `__bbBrowserTraceRecording`
+    // into each same-origin frame, the value being copied is already `true`.
+    await this.evaluate(targetId, "window.__bbBrowserTraceRecording = true", true);
+    await this.evaluate(targetId, TRACE_INJECTION_SCRIPT, true);
+    // Defensive: force-sync recording state into all accessible frames.
+    // Covers (a) frames whose contentWindow was unreadable during initial walk
+    // and (b) frames injected by a previous start() with recording=false.
+    await this.evaluate(
+      targetId,
+      `(function(){
+        Array.from(document.querySelectorAll('frame, iframe')).forEach(function(el){
+          try {
+            var fw = el.contentWindow;
+            if (fw) fw.__bbBrowserTraceRecording = true;
+          } catch(e) {}
+        });
+      })()`,
+      true,
+    );
+    // Health check: verify the injection actually took effect (e.g. console.log
+    // wasn't overridden, no CSP/sandbox blocking the script).
+    const injected = await this.evaluate<boolean>(
+      targetId,
+      "!!window.__bbBrowserTraceInjected",
+      true,
+    );
+    if (!injected) {
+      throw new Error(
+        "Trace injection failed: __bbBrowserTraceInjected flag not set (page may override console or block script execution)",
+      );
+    }
+  }
+
+  /** Remove trace recording flag from a page (stop recording). */
+  async stopTraceInjection(targetId: string): Promise<void> {
+    await this.evaluate(
+      targetId,
+      `window.__bbBrowserTraceRecording = false;
+       Array.from(document.querySelectorAll('frame,iframe')).forEach(function(el){
+         try{ if(el.contentWindow) el.contentWindow.__bbBrowserTraceRecording=false; }catch(e){}
+       });`,
+      true,
     );
   }
 

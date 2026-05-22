@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>bb-browser</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="popup" id="popup">
+      <!-- ─── Header (48px) ─────────────────────────────────────── -->
+      <header class="popup-header">
+        <div class="header-left">
+          <span class="status-dot" id="statusDot"></span>
+          <span class="status-text" id="statusText">bb-browser · 加载中…</span>
+        </div>
+        <div class="header-right">
+          <button class="icon-btn" id="settingsBtn" title="设置" aria-label="设置">⚙</button>
+          <button class="icon-btn" id="closeBtn" title="关闭" aria-label="关闭">✕</button>
+        </div>
+      </header>
+
+      <!-- ─── Body (scroll) ─────────────────────────────────────── -->
+      <main class="popup-body">
+        <!-- Optional error banner (red, shown when something is wrong) -->
+        <div class="error-banner hidden" id="errorBanner">
+          <span id="errorMsg"></span>
+          <button class="link-btn" id="errorAction">详情</button>
+        </div>
+
+        <!-- Chrome info -->
+        <section class="info-line" id="chromeInfoSection">
+          <span id="chromeInfo">Chrome 未连接</span>
+        </section>
+
+        <hr class="divider" />
+
+        <!-- Ports + Token (each with a copy button) -->
+        <section class="data-section" id="portsTokenSection">
+          <div class="data-row">
+            <span class="label">端口</span>
+            <div class="data-stack">
+              <div class="data-item">
+                <span class="data-key">daemon</span>
+                <span class="data-value" id="daemonPort">—</span>
+                <button class="copy-btn" data-copy-target="daemonPort" title="复制">复制</button>
+              </div>
+              <div class="data-item">
+                <span class="data-key">CDP</span>
+                <span class="data-value" id="cdpPort">—</span>
+                <button class="copy-btn" data-copy-target="cdpPort" title="复制">复制</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="data-row">
+            <span class="label">Token</span>
+            <div class="data-stack">
+              <div class="data-item">
+                <span class="data-value mono" id="token">—</span>
+                <button class="copy-btn" data-copy-target="token" title="复制">复制</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <hr class="divider" />
+
+        <!-- Recent commands (up to 3) -->
+        <section class="recent-section">
+          <div class="section-title">最近命令</div>
+          <ul class="recent-list" id="recentList">
+            <li class="recent-empty">暂无命令</li>
+          </ul>
+          <button class="link-btn hidden" id="viewAllBtn">查看全部 →</button>
+        </section>
+      </main>
+
+      <!-- ─── Footer (44px) ─────────────────────────────────────── -->
+      <footer class="popup-footer">
+        <button class="btn btn-secondary" id="openPanelBtn">打开控制面板</button>
+        <div class="footer-right">
+          <button class="btn" id="restartBtn">重启</button>
+          <button class="btn btn-danger" id="quitBtn">退出</button>
+        </div>
+      </footer>
+    </div>
+
+    <!-- Toast feedback area (in-popup, for copy confirmations etc.) -->
+    <div class="toast-area" id="toastArea" aria-live="polite"></div>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

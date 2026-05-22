@@ -15,7 +15,6 @@ import type {
   ResponseData,
   RefInfo,
   SnapshotData,
-  TraceEvent,
   TraceStatus,
 } from "@bb-browser/shared";
 import { CdpConnection, type CdpTargetInfo } from "./cdp-connection.js";
@@ -497,13 +496,6 @@ async function getAttributeValue(
 }
 
 // ---------------------------------------------------------------------------
-// Trace state (global, not per-tab — matches original behavior)
-// ---------------------------------------------------------------------------
-
-let traceRecording = false;
-const traceEvents: TraceEvent[] = [];
-
-// ---------------------------------------------------------------------------
 // Main dispatch
 // ---------------------------------------------------------------------------
 
@@ -518,8 +510,28 @@ export async function dispatchRequest(
   // Resolve target from request.tabId (supports short IDs)
   const tabRef = request.tabId;
 
-  // tab_new must work even when there are no existing tabs,
-  // so handle it before ensurePageTarget().
+  // tab_new and tab_list must work even when there are no existing tabs (or
+  // when all open tabs are non-page targets), so handle them before
+  // ensurePageTarget() which would throw "No page target found".
+  if (request.action === "tab_list") {
+    const targets = (await cdp.getTargets()).filter((t) => t.type === "page");
+    const tabs = targets.map((t, index) => {
+      const tState = cdp.tabManager.getTab(t.id);
+      return {
+        index,
+        url: t.url,
+        title: t.title,
+        active: t.id === cdp.currentTargetId || (!cdp.currentTargetId && index === 0),
+        tabId: t.id,
+        tab: tState?.shortId ?? t.id.slice(-4).toLowerCase(),
+      };
+    });
+    return ok(request.id, {
+      tabs,
+      activeIndex: tabs.findIndex((t) => t.active),
+    });
+  }
+
   if (request.action === "tab_new") {
     const url = request.url ?? "about:blank";
     const created = await cdp.browserCommand<{ targetId: string }>(
@@ -650,6 +662,22 @@ export async function dispatchRequest(
       });
       if (request.action === "click") {
         await mouseClick(cdp, target.id, point.x, point.y);
+        // Also trigger element.click() for React synthetic event compatibility
+        try {
+          const resolved = await cdp.sessionCommand<{ object: { objectId: string } }>(
+            target.id,
+            "DOM.resolveNode",
+            { backendNodeId },
+          );
+          if (resolved?.object?.objectId) {
+            await cdp.sessionCommand(target.id, "Runtime.callFunctionOn", {
+              objectId: resolved.object.objectId,
+              functionDeclaration: "function() { this.click(); }",
+            });
+          }
+        } catch {
+          // Non-critical — click via CDP events already fired
+        }
       }
       return ok(request.id, { tab: shortId, seq });
     }
@@ -783,26 +811,7 @@ export async function dispatchRequest(
     // -----------------------------------------------------------------------
     // Tab management
     // -----------------------------------------------------------------------
-    case "tab_list": {
-      const targets = (await cdp.getTargets()).filter((t) => t.type === "page");
-      const tabs = targets.map((t, index) => {
-        const tState = cdp.tabManager.getTab(t.id);
-        return {
-          index,
-          url: t.url,
-          title: t.title,
-          active: t.id === cdp.currentTargetId || (!cdp.currentTargetId && index === 0),
-          tabId: t.id,
-          tab: tState?.shortId ?? t.id.slice(-4).toLowerCase(),
-        };
-      });
-      return ok(request.id, {
-        tabs,
-        activeIndex: tabs.findIndex((t) => t.active),
-      });
-    }
-
-    // tab_new is handled before ensurePageTarget() above
+    // tab_list and tab_new are handled before ensurePageTarget() above.
 
     case "tab_select": {
       const targets = (await cdp.getTargets()).filter((t) => t.type === "page");
@@ -1066,25 +1075,39 @@ export async function dispatchRequest(
       const subCommand = request.traceCommand ?? "status";
       switch (subCommand) {
         case "start":
-          traceRecording = true;
-          traceEvents.length = 0;
+          tab.traceRecording = true;
+          tab.clearTrace();
+          await cdp.startTraceInjection(target.id);
           return ok(request.id, {
             traceStatus: { recording: true, eventCount: 0 } satisfies TraceStatus,
             tab: shortId,
           });
         case "stop": {
-          traceRecording = false;
+          tab.traceRecording = false;
+          await cdp.stopTraceInjection(target.id);
+          const traceResult = tab.getTraceEvents();
           return ok(request.id, {
-            traceEvents: [...traceEvents],
-            traceStatus: { recording: false, eventCount: traceEvents.length } satisfies TraceStatus,
+            traceEvents: traceResult.items,
+            traceStatus: { recording: false, eventCount: traceResult.items.length } satisfies TraceStatus,
             tab: shortId,
           });
         }
-        case "status":
+        case "status": {
+          const count = tab.traceEvents.size;
           return ok(request.id, {
-            traceStatus: { recording: traceRecording, eventCount: traceEvents.length } satisfies TraceStatus,
+            traceStatus: { recording: tab.traceRecording, eventCount: count } satisfies TraceStatus,
             tab: shortId,
           });
+        }
+        case "events": {
+          const traceResult = tab.getTraceEvents({ since: request.since });
+          return ok(request.id, {
+            traceEvents: traceResult.items,
+            traceStatus: { recording: tab.traceRecording, eventCount: tab.traceEvents.size } satisfies TraceStatus,
+            tab: shortId,
+            cursor: traceResult.cursor,
+          });
+        }
         default:
           return fail(request.id, `Unknown trace subcommand: ${subCommand}`);
       }

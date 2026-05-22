@@ -1,0 +1,60 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "bb-browser Tray",
+  "version": "0.0.1",
+  "identifier": "com.bb-browser.tray",
+  "build": {
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
+    "frontendDist": "../src"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "popup",
+        "title": "bb-browser",
+        "url": "index.html",
+        "width": 360,
+        "height": 360,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "focus": false,
+        "shadow": true,
+        "minWidth": 360,
+        "maxWidth": 360
+      }
+    ],
+    "trayIcon": {
+      "id": "main-tray",
+      "iconPath": "icons/tray-red.png",
+      "iconAsTemplate": false,
+      "tooltip": "bb-browser · starting..."
+    },
+    "security": {
+      "csp": null
+    },
+    "withGlobalTauri": true
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "resources": [
+      "icons/*.png"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "displayLanguageSelector": false,
+        "languages": ["English", "SimpChinese"]
+      }
+    }
+  }
+}

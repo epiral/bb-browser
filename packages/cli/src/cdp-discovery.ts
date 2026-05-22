@@ -6,8 +6,12 @@ import path from "node:path";
 import { parseOpenClawJson } from "./openclaw-json.js";
 
 const DEFAULT_CDP_PORT = 19825;
+const LOCAL_CHROME_USER_DATA_DIR = path.join(
+  process.env.LOCALAPPDATA ?? path.join(os.homedir(), "AppData", "Local"),
+  "360ChromeX", "Chrome", "User Data",
+);
 const MANAGED_BROWSER_DIR = path.join(os.homedir(), ".bb-browser", "browser");
-const MANAGED_USER_DATA_DIR = path.join(MANAGED_BROWSER_DIR, "user-data");
+const MANAGED_USER_DATA_DIR = LOCAL_CHROME_USER_DATA_DIR;
 const MANAGED_PORT_FILE = path.join(MANAGED_BROWSER_DIR, "cdp-port");
 const CDP_CACHE_FILE = path.join(os.tmpdir(), "bb-browser-cdp-cache.json");
 const CACHE_TTL_MS = 30000; // 缓存有效期 30 秒
@@ -115,16 +119,21 @@ export function findBrowserExecutable(): string | null {
   if (process.platform === "win32") {
     const localAppData = process.env.LOCALAPPDATA ?? "";
     const candidates = [
-      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-      "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+      // 360ChromeX
       ...(localAppData ? [
-        `${localAppData}\\Google\\Chrome Dev\\Application\\chrome.exe`,
-        `${localAppData}\\Google\\Chrome SxS\\Application\\chrome.exe`,
-        `${localAppData}\\Google\\Chrome Beta\\Application\\chrome.exe`,
+        `${localAppData}/360ChromeX/Chrome/Application/360ChromeX.exe`,
       ] : []),
-      "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
-      "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
-      "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
+      // Google Chrome
+      "C:/Program Files/Google/Chrome/Application/chrome.exe",
+      "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
+      ...(localAppData ? [
+        `${localAppData}/Google/Chrome Dev/Application/chrome.exe`,
+        `${localAppData}/Google/Chrome SxS/Application/chrome.exe`,
+        `${localAppData}/Google/Chrome Beta/Application/chrome.exe`,
+      ] : []),
+      "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+      "C:/Program Files/Microsoft/Edge/Application/msedge.exe",
+      "C:/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe",
     ];
     return candidates.find((candidate) => existsSync(candidate)) ?? null;
   }
@@ -153,18 +162,7 @@ export async function launchManagedBrowser(port: number = DEFAULT_CDP_PORT): Pro
 
   await mkdir(MANAGED_USER_DATA_DIR, { recursive: true });
 
-  // Set profile name so the Chrome window shows "bb-browser" in the title bar
-  const defaultProfileDir = path.join(MANAGED_USER_DATA_DIR, "Default");
-  const prefsPath = path.join(defaultProfileDir, "Preferences");
-  await mkdir(defaultProfileDir, { recursive: true });
-  try {
-    let prefs: Record<string, unknown> = {};
-    try { prefs = JSON.parse(await readFile(prefsPath, "utf8")); } catch {}
-    if (!(prefs.profile as Record<string, unknown>)?.name || (prefs.profile as Record<string, unknown>).name !== "bb-browser") {
-      prefs.profile = { ...(prefs.profile as Record<string, unknown> || {}), name: "bb-browser" };
-      await writeFile(prefsPath, JSON.stringify(prefs), "utf8");
-    }
-  } catch {}
+  // 使用本机 Chrome profile，不移除 Preferences
 
   const args = [
     `--remote-debugging-port=${port}`,

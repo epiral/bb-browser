@@ -1,0 +1,18 @@
+{
+  "name": "@bb-browser/tray-app",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Windows system tray daemon UI for bb-browser",
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "build:debug": "tauri build --debug"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.0.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}
