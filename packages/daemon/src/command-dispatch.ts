@@ -400,6 +400,10 @@ async function mouseClick(cdp: CdpConnection, targetId: string, x: number, y: nu
   });
 }
 
+async function activateTarget(cdp: CdpConnection, targetId: string): Promise<void> {
+  await cdp.browserCommand("Target.activateTarget", { targetId });
+}
+
 async function insertTextIntoNode(
   cdp: CdpConnection,
   targetId: string,
@@ -763,6 +767,9 @@ export async function dispatchRequest(
         role: refInfo?.role,
         tag: refInfo?.tagName,
       });
+      if (request.method === "click") {
+        await activateTarget(cdp, target.id);
+      }
       const backendNodeId = await parseRef(cdp, target.id, tab, request.ref);
       const point = await getInteractablePoint(cdp, target.id, backendNodeId);
       await cdp.sessionCommand(target.id, "Input.dispatchMouseEvent", {
@@ -886,6 +893,7 @@ export async function dispatchRequest(
         case "left": deltaX = -pixels; break;
         case "right": deltaX = pixels; break;
       }
+      await activateTarget(cdp, target.id);
       await cdp.sessionCommand(target.id, "Input.dispatchMouseEvent", {
         type: "mouseWheel", x: 0, y: 0, deltaX, deltaY,
       });
