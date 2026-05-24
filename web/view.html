@@ -1060,26 +1060,33 @@ function stopHeartbeat() {
 }
 
 // --- Visibility change: idle timeout ---
+// We use a polling interval instead of setTimeout because browsers heavily
+// throttle timers in hidden tabs (Chrome delays them to >=1 minute).
+// A setTimeout(fn, 30000) in a hidden tab may not fire for over a minute.
+// Instead we record when the tab was hidden and check elapsed time on each
+// heartbeat tick — the interval is throttled but still fires periodically.
+let hiddenSince = 0; // timestamp when tab became hidden, 0 = visible
+
 document.addEventListener("visibilitychange", () => {
   if (!connected) return;
 
   if (document.hidden) {
-    // Tab hidden: switch to slow heartbeat, start idle countdown
+    hiddenSince = Date.now();
     debugLog("lifecycle", "tab_hidden", { timeout: IDLE_TIMEOUT_MS });
+    // Switch to idle heartbeat — each tick also checks idle timeout
     stopHeartbeat();
-    heartbeatTimer = setInterval(sendPing, HEARTBEAT_IDLE_MS);
+    heartbeatTimer = setInterval(() => {
+      sendPing();
+      if (hiddenSince > 0 && Date.now() - hiddenSince >= IDLE_TIMEOUT_MS) {
+        debugLog("lifecycle", "idle_timeout", { elapsed: Date.now() - hiddenSince });
+        disconnect("idle");
+      }
+    }, HEARTBEAT_IDLE_MS);
     sendPing();
-    idleTimer = setTimeout(() => {
-      debugLog("lifecycle", "idle_timeout");
-      disconnect("idle");
-    }, IDLE_TIMEOUT_MS);
   } else {
-    // Tab visible: cancel idle countdown, switch to fast heartbeat
+    hiddenSince = 0;
     debugLog("lifecycle", "tab_visible");
-    if (idleTimer) {
-      clearTimeout(idleTimer);
-      idleTimer = null;
-    }
+    // Cancel any pending idle — switch back to active heartbeat
     stopHeartbeat();
     heartbeatTimer = setInterval(sendPing, HEARTBEAT_ACTIVE_MS);
     sendPing();
