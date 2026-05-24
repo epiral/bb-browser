@@ -444,14 +444,24 @@ function setStatus(state, text) {
   statusText.textContent = text;
 }
 
-function setConnected(state) {
+// Overlay messages by disconnect reason
+const OVERLAY_MESSAGES = {
+  user: "Disconnected",
+  idle: "Stream closed \u2014 tab was inactive",
+  network: "Connection lost",
+  init: "Click Connect to start",
+};
+
+function setConnected(state, reason) {
   connected = state;
   btnConnect.textContent = state ? "Disconnect" : "Connect";
   btnConnect.classList.toggle("connected", state);
   btnConnect.disabled = false;
   // Video overlay
   videoOverlay.classList.toggle("hidden", state);
-  if (!state) videoOverlay.textContent = "Click Connect to start";
+  if (!state) {
+    videoOverlay.textContent = OVERLAY_MESSAGES[reason] || OVERLAY_MESSAGES.init;
+  }
   // Input overlay cursor
   inputOverlay.classList.toggle("active", state);
   // Tab/URL bar dimming
@@ -711,6 +721,24 @@ function sendInsertText(text) {
   dc.send(buf);
 }
 
+function sendPing() {
+  if (!dc || dc.readyState !== "open") return;
+  const now = BigInt(Date.now());
+  const { buf, view } = packHeader(0x08, 8);
+  // Write timestamp as big-endian uint64
+  view.setUint32(3, Number(now >> 32n));
+  view.setUint32(7, Number(now & 0xFFFFFFFFn));
+  dc.send(buf);
+}
+
+// --- Heartbeat & Visibility lifecycle ---
+const HEARTBEAT_ACTIVE_MS = 5000;   // ping interval when visible
+const HEARTBEAT_IDLE_MS = 10000;    // ping interval when hidden
+const IDLE_TIMEOUT_MS = 30000;      // disconnect after 30s hidden
+
+let heartbeatTimer = null;
+let idleTimer = null;
+
 // --- Keysym mapping ---
 const SPECIAL_KEYS = {
   Backspace: 0xFF08, Tab: 0xFF09, Enter: 0xFF0D, Escape: 0xFF1B,
@@ -891,15 +919,16 @@ async function connect() {
     debugLog("webrtc", "datachannel", { label: dc.label });
     dc.onopen = () => {
       debugLog("webrtc", "datachannel_open");
-      setConnected(true);
+      setConnected(true, null);
       imeInput.focus();
       // Start tab polling once connected
       fetchTabs();
       startTabPolling();
+      startHeartbeat();
     };
     dc.onclose = () => {
       debugLog("webrtc", "datachannel_close");
-      cleanup();
+      cleanup("network");
     };
   };
 
@@ -910,10 +939,10 @@ async function connect() {
       setStatus("connected", "Connected");
     } else if (state === "failed") {
       setStatus("error", "ICE failed");
-      cleanup();
+      cleanup("network");
     } else if (state === "disconnected") {
       setStatus("error", "ICE disconnected");
-      cleanup();
+      cleanup("network");
     } else if (state === "checking") {
       setStatus("connecting", "ICE: " + state);
     }
@@ -989,14 +1018,17 @@ async function connect() {
   setStatus("connecting", "Waiting for connection...");
 }
 
-async function disconnect() {
-  debugLog("webrtc", "disconnect");
+async function disconnect(reason) {
+  reason = reason || "user";
+  debugLog("webrtc", "disconnect", { reason });
   try { await invoke("stream.close", {}); } catch {}
-  cleanup();
+  cleanup(reason);
 }
 
-function cleanup() {
-  debugLog("webrtc", "cleanup");
+function cleanup(reason) {
+  reason = reason || "user";
+  debugLog("webrtc", "cleanup", { reason });
+  stopHeartbeat();
   if (dc) { try { dc.close(); } catch {} dc = null; }
   if (pc) { try { pc.close(); } catch {} pc = null; }
   if (videoEl.srcObject) {
@@ -1004,8 +1036,55 @@ function cleanup() {
     videoEl.srcObject = null;
   }
   stopTabPolling();
-  setConnected(false);
+  setConnected(false, reason);
 }
+
+// --- Heartbeat lifecycle ---
+function startHeartbeat() {
+  stopHeartbeat();
+  const interval = document.hidden ? HEARTBEAT_IDLE_MS : HEARTBEAT_ACTIVE_MS;
+  heartbeatTimer = setInterval(sendPing, interval);
+  sendPing(); // send immediately
+  debugLog("heartbeat", "start", { interval, hidden: document.hidden });
+}
+
+function stopHeartbeat() {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+  if (idleTimer) {
+    clearTimeout(idleTimer);
+    idleTimer = null;
+  }
+}
+
+// --- Visibility change: idle timeout ---
+document.addEventListener("visibilitychange", () => {
+  if (!connected) return;
+
+  if (document.hidden) {
+    // Tab hidden: switch to slow heartbeat, start idle countdown
+    debugLog("lifecycle", "tab_hidden", { timeout: IDLE_TIMEOUT_MS });
+    stopHeartbeat();
+    heartbeatTimer = setInterval(sendPing, HEARTBEAT_IDLE_MS);
+    sendPing();
+    idleTimer = setTimeout(() => {
+      debugLog("lifecycle", "idle_timeout");
+      disconnect("idle");
+    }, IDLE_TIMEOUT_MS);
+  } else {
+    // Tab visible: cancel idle countdown, switch to fast heartbeat
+    debugLog("lifecycle", "tab_visible");
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+      idleTimer = null;
+    }
+    stopHeartbeat();
+    heartbeatTimer = setInterval(sendPing, HEARTBEAT_ACTIVE_MS);
+    sendPing();
+  }
+});
 
 // --- Event binding ---
 inputOverlay.addEventListener("mousemove", onMouseMove);
@@ -1021,7 +1100,7 @@ imeInput.addEventListener("compositionstart", onCompositionStart);
 imeInput.addEventListener("compositionend", onCompositionEnd);
 
 btnConnect.addEventListener("click", () => {
-  if (connected) disconnect();
+  if (connected) disconnect("user");
   else connect();
 });
 
@@ -1045,7 +1124,7 @@ window.addEventListener("focus", () => {
 window.addEventListener("beforeunload", () => {
   if (connected) {
     try { invoke("stream.close", {}); } catch {}
-    cleanup();
+    cleanup("user");
   }
 });
 
