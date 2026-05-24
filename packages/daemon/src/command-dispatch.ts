@@ -18,9 +18,8 @@ import type {
   TraceEntry,
   TraceStatus,
 } from "@bb-browser/shared";
-import { CdpConnection, type CdpTargetInfo } from "./cdp-connection.js";
+import { CdpConnection } from "./cdp-connection.js";
 import type { TabState } from "./tab-state.js";
-import type { ActionDetail } from "./tab-state.js";
 import { getAllSites, executeSiteAdapter } from "./site-adapter.js";
 
 // ---------------------------------------------------------------------------

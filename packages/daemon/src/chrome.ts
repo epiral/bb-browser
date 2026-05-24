@@ -178,13 +178,11 @@ async function downloadAndExtractChrome(platform: Platform): Promise<string> {
   // Try download sources in order
   const urls = getDownloadUrls(platform);
   let resp: Response | null = null;
-  let usedUrl = "";
 
   for (const url of urls) {
     console.error(`${LOG_PREFIX} Downloading Chrome ${CHROME_VERSION} (${platform}) from ${new URL(url).host}...`);
     resp = await tryFetch(url);
     if (resp) {
-      usedUrl = url;
       break;
     }
     console.error(`${LOG_PREFIX} Download failed, trying next source...`);
