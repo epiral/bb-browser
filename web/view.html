@@ -723,12 +723,16 @@ function sendInsertText(text) {
 
 function sendPing() {
   if (!dc || dc.readyState !== "open") return;
-  const now = BigInt(Date.now());
-  const { buf, view } = packHeader(0x08, 8);
-  // Write timestamp as big-endian uint64
-  view.setUint32(3, Number(now >> 32n));
-  view.setUint32(7, Number(now & 0xFFFFFFFFn));
-  dc.send(buf);
+  try {
+    // Send timestamp as two uint32s (ms since epoch fits in 53 bits)
+    const now = Date.now();
+    const { buf, view } = packHeader(0x08, 8);
+    view.setUint32(3, Math.floor(now / 0x100000000));
+    view.setUint32(7, now >>> 0);
+    dc.send(buf);
+  } catch (e) {
+    debugLog("heartbeat", "ping_error", { message: e.message });
+  }
 }
 
 // --- Heartbeat & Visibility lifecycle ---
@@ -1021,7 +1025,10 @@ async function connect() {
 async function disconnect(reason) {
   reason = reason || "user";
   debugLog("webrtc", "disconnect", { reason });
-  try { await invoke("stream.close", {}); } catch {}
+  // Fire-and-forget: don't wait for stream.close response.
+  // The server may be slow or unreachable; cleanup must happen immediately
+  // so the UI updates and heartbeat stops.
+  invoke("stream.close", {}).catch(() => {});
   cleanup(reason);
 }
 
