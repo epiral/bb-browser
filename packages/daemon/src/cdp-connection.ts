@@ -292,6 +292,8 @@ export class CdpConnection {
   private sessions = new Map<string, string>();
   /** sessionId -> targetId */
   private attachedTargets = new Map<string, string>();
+  /** targetId -> owning page targetId (page targets map to themselves) */
+  private ownerPageTargetByTarget = new Map<string, string>();
 
   readonly host: string;
   readonly port: number;
@@ -444,6 +446,9 @@ export class CdpConnection {
         if (typeof sessionId === "string" && typeof targetInfo?.targetId === "string") {
           this.sessions.set(targetInfo.targetId, sessionId);
           this.attachedTargets.set(sessionId, targetInfo.targetId);
+          if (targetInfo.type === "page") {
+            this.ownerPageTargetByTarget.set(targetInfo.targetId, targetInfo.targetId);
+          }
         }
         return;
       }
@@ -456,6 +461,7 @@ export class CdpConnection {
           if (targetId) {
             this.sessions.delete(targetId);
             this.attachedTargets.delete(sessionId);
+            this.ownerPageTargetByTarget.delete(targetId);
             this.tabManager.removeTab(targetId);
             if (this.currentTargetId === targetId) {
               this.currentTargetId = undefined;
@@ -484,6 +490,7 @@ export class CdpConnection {
             this.sessions.delete(targetId);
             this.attachedTargets.delete(sessionId);
           }
+          this.ownerPageTargetByTarget.delete(targetId);
           this.tabManager.removeTab(targetId);
           if (this.currentTargetId === targetId) {
             this.currentTargetId = undefined;
@@ -529,7 +536,39 @@ export class CdpConnection {
     const params = (event.params ?? {}) as JsonObject;
     if (typeof method !== "string") return;
 
-    const tab = this.tabManager.getTab(targetId);
+    if (method === "Target.attachedToTarget") {
+      const sessionId = params.sessionId;
+      const targetInfo = params.targetInfo as JsonObject;
+      if (typeof sessionId === "string" && typeof targetInfo?.targetId === "string") {
+        const ownerPageTargetId = this.getOwningPageTargetId(targetId);
+        this.sessions.set(targetInfo.targetId, sessionId);
+        this.attachedTargets.set(sessionId, targetInfo.targetId);
+        this.ownerPageTargetByTarget.set(targetInfo.targetId, ownerPageTargetId);
+        if (targetInfo.type === "iframe") {
+          await this.sessionCommand(targetInfo.targetId, "Network.enable").catch(() => {});
+        }
+      }
+      return;
+    }
+
+    if (method === "Target.detachedFromTarget") {
+      const sessionId = params.sessionId;
+      if (typeof sessionId === "string") {
+        const detachedTargetId = this.attachedTargets.get(sessionId);
+        if (detachedTargetId) {
+          this.sessions.delete(detachedTargetId);
+          this.attachedTargets.delete(sessionId);
+          this.ownerPageTargetByTarget.delete(detachedTargetId);
+          if (this.currentTargetId === detachedTargetId) {
+            this.currentTargetId = undefined;
+          }
+        }
+      }
+      return;
+    }
+
+    const ownerPageTargetId = this.getOwningPageTargetId(targetId);
+    const tab = this.tabManager.getTab(ownerPageTargetId);
     if (!tab) return;
 
     // Dialog handling
@@ -557,7 +596,7 @@ export class CdpConnection {
         timestamp: Math.round(Number(params.timestamp ?? Date.now()) * 1000),
         requestHeaders: normalizeHeaders(request.headers),
         requestBody: typeof request.postData === "string" ? request.postData : undefined,
-      });
+      }, targetId);
       return;
     }
 
@@ -570,7 +609,7 @@ export class CdpConnection {
         statusText: typeof response.statusText === "string" ? response.statusText : undefined,
         responseHeaders: normalizeHeaders(response.headers),
         mimeType: typeof response.mimeType === "string" ? response.mimeType : undefined,
-      });
+      }, targetId);
       return;
     }
 
@@ -580,6 +619,7 @@ export class CdpConnection {
       tab.updateNetworkFailure(
         requestId,
         typeof params.errorText === "string" ? params.errorText : "Unknown error",
+        targetId,
       );
       return;
     }
@@ -676,6 +716,7 @@ export class CdpConnection {
     );
     this.sessions.set(targetId, result.sessionId);
     this.attachedTargets.set(result.sessionId, targetId);
+    this.ownerPageTargetByTarget.set(targetId, targetId);
 
     // Register in tab state manager
     this.tabManager.addTab(targetId);
@@ -686,6 +727,11 @@ export class CdpConnection {
     await this.sessionCommand(targetId, "Network.enable").catch(() => {});
     await this.sessionCommand(targetId, "DOM.enable").catch(() => {});
     await this.sessionCommand(targetId, "Accessibility.enable").catch(() => {});
+    await this.sessionCommand(targetId, "Target.setAutoAttach", {
+      autoAttach: true,
+      waitForDebuggerOnStart: false,
+      flatten: true,
+    }).catch(() => {});
 
     // Stealth: only apply to headless Chrome.
     // Full Chrome (headed or --headless=new with system Chrome) should NOT have
@@ -823,6 +869,10 @@ export class CdpConnection {
   /** Check if a session exists for a given targetId. */
   hasSession(targetId: string): boolean {
     return this.sessions.has(targetId);
+  }
+
+  private getOwningPageTargetId(targetId: string): string {
+    return this.ownerPageTargetByTarget.get(targetId) ?? targetId;
   }
 
   // ---------------------------------------------------------------------------
