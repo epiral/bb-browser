@@ -35,11 +35,14 @@ const VERSION = __BB_BROWSER_VERSION__;
 
 // Commands that require --tab
 const TAB_REQUIRED_COMMANDS = new Set([
-  "snap", "screenshot", "get", "eval",
+  "snap", "screenshot", "get",
   "click", "hover", "fill", "type", "check", "uncheck", "select",
   "press", "scroll", "back", "forward", "reload", "close",
   "frame", "dialog", "network", "console", "errors", "trace",
 ]);
+
+// eval requires --tab unless --domain is provided
+const TAB_OR_DOMAIN_COMMANDS = new Set(["eval"]);
 
 const HELP_TEXT = `
 bb-browser - AI Agent 浏览器自动化工具
@@ -78,7 +81,7 @@ bb-browser - AI Agent 浏览器自动化工具
 页面信息：
   get text|url|title|value|html [ref]  获取页面内容 (--tab required)
   screenshot [path]            截图 (--tab required)
-  eval "<js>"                  执行 JavaScript (--tab required)
+  eval "<js>" [--domain d]     执行 JavaScript (--tab or --domain)
 
 标签页：
   tab [list|new]               管理标签页
@@ -126,6 +129,8 @@ interface ParsedArgs {
     openclaw?: boolean;
     port?: number;
     since?: string;
+    domain?: string;
+    args?: string;
   };
 }
 
@@ -197,6 +202,18 @@ function parseArgs(argv: string[]): ParsedArgs {
       skipNext = true;
     } else if (arg === "--tab") {
       skipNext = true;
+    } else if (arg === "--domain") {
+      skipNext = true;
+      const nextIdx = args.indexOf(arg) + 1;
+      if (nextIdx < args.length) {
+        result.flags.domain = args[nextIdx];
+      }
+    } else if (arg === "--args") {
+      skipNext = true;
+      const nextIdx = args.indexOf(arg) + 1;
+      if (nextIdx < args.length) {
+        result.flags.args = args[nextIdx];
+      }
     } else if (arg === "--since") {
       skipNext = true;
     } else if (arg === "--method") {
@@ -368,10 +385,19 @@ async function main(): Promise<void> {
       case "eval": {
         const script = parsed.args[0];
         if (!script) {
-          console.error("用法：bb-browser eval <script> --tab <tabId>");
+          console.error("用法：bb-browser eval <script> [--tab <tabId>] [--domain <domain>] [--args <json>]");
           process.exit(1);
         }
-        await evalCommand(script, { json: parsed.flags.json, tabId: globalTabId });
+        if (!globalTabId && !parsed.flags.domain) {
+          console.error("Missing --tab or --domain. Run 'bb-browser tab list' to see open tabs.");
+          process.exit(1);
+        }
+        await evalCommand(script, {
+          json: parsed.flags.json,
+          tabId: globalTabId,
+          domain: parsed.flags.domain,
+          args: parsed.flags.args,
+        });
         break;
       }
 

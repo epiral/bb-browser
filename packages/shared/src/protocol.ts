@@ -58,6 +58,10 @@ export interface Request {
   maxDepth?: number;
   /** JavaScript 代码（eval 命令使用） */
   script?: string;
+  /** 目标域名（eval 命令使用，自动路由到匹配的 Tab 或新建） */
+  domain?: string;
+  /** 传递给脚本的参数对象（eval 命令使用，JSON 序列化后注入脚本） */
+  args?: Record<string, unknown>;
   /** 选项值（select 命令使用） */
   value?: string;
   /** 标签页索引（tab 命令使用） */

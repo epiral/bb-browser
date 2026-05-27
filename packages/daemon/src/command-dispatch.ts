@@ -505,6 +505,77 @@ let traceRecording = false;
 const traceEvents: TraceEvent[] = [];
 
 // ---------------------------------------------------------------------------
+// Domain-based tab routing
+// ---------------------------------------------------------------------------
+
+/**
+ * Check if a tab's URL hostname matches a domain (exact or subdomain).
+ */
+function matchTabDomain(tabUrl: string, domain: string): boolean {
+  try {
+    const hostname = new URL(tabUrl).hostname;
+    return hostname === domain || hostname.endsWith("." + domain);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve a tab by domain: find an existing tab matching the domain, or
+ * create a new one.  Returns the targetId, shortId, and TabState.
+ */
+async function resolveTabByDomain(
+  cdp: CdpConnection,
+  domain: string,
+): Promise<{ targetId: string; shortId: string; tab: TabState }> {
+  // Search existing tabs for a hostname match
+  const targets = (await cdp.getTargets()).filter(t => t.type === "page");
+  for (const t of targets) {
+    if (matchTabDomain(t.url, domain)) {
+      await cdp.attachAndEnable(t.id);
+      const tabState = cdp.tabManager.getTab(t.id);
+      if (tabState) {
+        return { targetId: t.id, shortId: tabState.shortId, tab: tabState };
+      }
+    }
+  }
+
+  // No matching tab — create one and wait for initial load
+  const created = await cdp.browserCommand<{ targetId: string }>(
+    "Target.createTarget",
+    { url: `https://${domain}` },
+  );
+  await cdp.attachAndEnable(created.targetId);
+
+  // Wait for the page to reach a loadable state (DOMContentLoaded or timeout)
+  const LOAD_TIMEOUT = 10_000;
+  await Promise.race([
+    new Promise<void>(resolve => {
+      const check = (): void => {
+        const tab = cdp.tabManager.getTab(created.targetId);
+        // Consider loaded once the TabStateManager has tracked the new target
+        if (tab) {
+          resolve();
+          return;
+        }
+        setTimeout(check, 200);
+      };
+      // Give CDP events a tick to propagate the new target
+      setTimeout(check, 500);
+    }),
+    new Promise<void>(resolve => setTimeout(resolve, LOAD_TIMEOUT)),
+  ]);
+
+  // Additional settle time for JS-heavy pages
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
+  const tabState = cdp.tabManager.getTab(created.targetId);
+  if (!tabState) throw new Error(`Failed to create tab for domain: ${domain}`);
+
+  return { targetId: created.targetId, shortId: tabState.shortId, tab: tabState };
+}
+
+// ---------------------------------------------------------------------------
 // Main dispatch
 // ---------------------------------------------------------------------------
 
@@ -535,6 +606,27 @@ export async function dispatchRequest(
       tab: newTab?.shortId ?? created.targetId.slice(-4).toLowerCase(),
       seq: newTab?.recordAction(),
     });
+  }
+
+  // eval with domain routing: resolve tab by domain before ensurePageTarget,
+  // because there may be no existing tabs yet.
+  if (request.method === "eval" && request.domain && tabRef === undefined) {
+    if (!request.script) return fail("Missing script parameter");
+    try {
+      const resolved = await resolveTabByDomain(cdp, request.domain);
+      const seq = resolved.tab.recordAction();
+
+      let script = request.script;
+      if (request.args !== undefined) {
+        const argsJson = JSON.stringify(request.args);
+        script = `(async function(){return (${script})(${argsJson});})()`;
+      }
+
+      const result = await cdp.evaluate<unknown>(resolved.targetId, script, true);
+      return ok({ result, tab: resolved.shortId, seq });
+    } catch (error) {
+      return fail(error);
+    }
   }
 
   const target = await cdp.ensurePageTarget(
@@ -766,14 +858,21 @@ export async function dispatchRequest(
     }
 
     case "eval": {
+      // Note: eval with domain routing (no explicit tab) is handled before
+      // ensurePageTarget() above.  This branch handles eval with an explicit
+      // tab, or eval without domain.
       if (!request.script) return fail("Missing script parameter");
       const seq = tab.recordAction();
-      const result = await cdp.evaluate<unknown>(target.id, request.script, true);
-      return ok({
-        result,
-        tab: shortId,
-        seq,
-      });
+
+      // If args are provided, wrap the script in an IIFE that receives them.
+      let script = request.script;
+      if (request.args !== undefined) {
+        const argsJson = JSON.stringify(request.args);
+        script = `(async function(){return (${script})(${argsJson});})()`;
+      }
+
+      const result = await cdp.evaluate<unknown>(target.id, script, true);
+      return ok({ result, tab: shortId, seq });
     }
 
     // -----------------------------------------------------------------------

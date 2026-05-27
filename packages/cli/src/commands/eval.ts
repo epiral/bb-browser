@@ -1,5 +1,7 @@
 /**
- * eval 命令 - 在当前页面执行 JavaScript
+ * eval 命令 - 在页面上下文中执行 JavaScript
+ *
+ * 支持 --domain 自动路由到匹配的 Tab（或新建），以及 --args 传递 JSON 参数。
  */
 
 import type { Request, Response } from "@bb-browser/shared";
@@ -9,6 +11,8 @@ import { ensureDaemonRunning } from "../daemon-manager.js";
 export interface EvalOptions {
   json?: boolean;
   tabId?: string | number;
+  domain?: string;
+  args?: string;
 }
 
 export async function evalCommand(
@@ -19,10 +23,22 @@ export async function evalCommand(
 
   await ensureDaemonRunning();
 
+  // Parse --args as JSON
+  let args: Record<string, unknown> | undefined;
+  if (options.args) {
+    try {
+      args = JSON.parse(options.args);
+    } catch {
+      throw new Error(`--args must be valid JSON: ${options.args}`);
+    }
+  }
+
   const request: Request = {
     method: "eval",
     script,
-    tabId: options.tabId,
+    ...(options.tabId !== undefined ? { tabId: options.tabId } : {}),
+    ...(options.domain ? { domain: options.domain } : {}),
+    ...(args !== undefined ? { args } : {}),
   };
 
   const response: Response = await sendCommand(request);

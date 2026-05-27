@@ -118,10 +118,12 @@ export const COMMANDS: CommandDef[] = [
   {
     method: "eval", group: "observe",
     description: "Execute JavaScript in the page context and return the result",
-    requiresTab: true,
+    requiresTab: false,
     params: {
       script: { type: "string", required: true, position: 0, description: "JavaScript source to execute" },
-      tab: { type: "string", required: true, description: "Tab short ID" },
+      tab: { type: "string", required: false, description: "Tab short ID (optional when domain is set)" },
+      domain: { type: "string", required: false, description: "Target domain — auto-routes to a matching tab or creates one" },
+      args: { type: "string", required: false, description: "JSON arguments to pass to the script (accessible as first arg in an IIFE)" },
     },
   },
 
