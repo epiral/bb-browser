@@ -442,8 +442,29 @@ export class CdpConnection {
         const sessionId = params.sessionId;
         const targetInfo = params.targetInfo as JsonObject;
         if (typeof sessionId === "string" && typeof targetInfo?.targetId === "string") {
-          this.sessions.set(targetInfo.targetId, sessionId);
-          this.attachedTargets.set(sessionId, targetInfo.targetId);
+          const targetId = targetInfo.targetId;
+          this.sessions.set(targetId, sessionId);
+          this.attachedTargets.set(sessionId, targetId);
+
+          // Re-enable CDP domains on the new session. This handles same-tab
+          // navigation where Chrome detaches the old session and creates a new
+          // one — CDP domains (Network, Runtime, etc.) must be re-enabled.
+          const existingTab = this.tabManager.getTab(targetId);
+          if (existingTab) {
+            this.sessionCommand(targetId, "Page.enable").catch(() => {});
+            this.sessionCommand(targetId, "Runtime.enable").catch(() => {});
+            this.sessionCommand(targetId, "Network.enable").catch(() => {});
+            this.sessionCommand(targetId, "DOM.enable").catch(() => {});
+            this.sessionCommand(targetId, "Accessibility.enable").catch(() => {});
+
+            // Re-inject human capture if this tab is being traced
+            if (this.tabManager.isTraced(targetId)) {
+              this.enableHumanCapture(targetId).catch(() => {});
+            }
+          } else {
+            // New target — register tab state
+            this.tabManager.addTab(targetId);
+          }
         }
         return;
       }
@@ -456,10 +477,11 @@ export class CdpConnection {
           if (targetId) {
             this.sessions.delete(targetId);
             this.attachedTargets.delete(sessionId);
-            this.tabManager.removeTab(targetId);
-            if (this.currentTargetId === targetId) {
-              this.currentTargetId = undefined;
-            }
+            // Do NOT call tabManager.removeTab() here — detach can happen
+            // during same-tab navigation (cross-origin). The tab target still
+            // exists; only Target.targetDestroyed should remove tab state.
+            // Session maps are cleaned so the old sessionId won't route events,
+            // but the tab's event buffers (network, console, etc.) are preserved.
           }
         }
         return;
