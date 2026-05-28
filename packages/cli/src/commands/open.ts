@@ -65,17 +65,18 @@ export async function openCommand(
     console.log(JSON.stringify(response, null, 2));
   } else {
     if (response.result) {
-      console.log(`已打开: ${response.result?.url ?? normalizedUrl}`);
-      if (response.result?.title) {
-        console.log(`标题: ${response.result.title}`);
+      const tab = response.result?.tab;
+      if (tab) {
+        console.log(`tab: ${tab}`);
       }
-      if (response.result?.tabId) {
-        console.log(`Tab ID: ${response.result.tabId}`);
+      console.log(`url: ${response.result?.url ?? normalizedUrl}`);
+      if (response.result?.title) {
+        console.log(`title: ${response.result.title}`);
       }
       // 提示：如果该域名有 site adapter，引导使用
       const siteHint = getSiteHintForDomain(normalizedUrl);
       if (siteHint) {
-        console.log(`\n💡 ${siteHint}`);
+        console.log(`\nhint: ${siteHint}`);
       }
     } else {
       console.error(`错误: ${response.error?.message}`);

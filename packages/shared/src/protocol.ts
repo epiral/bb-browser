@@ -34,7 +34,10 @@ export type ActionType =
   | "site_run"
   | "site_list"
   | "site_info"
-  | "site_search";
+  | "site_search"
+  | "goto"
+  | "cookies"
+  | "source";
 
 /** 请求类型 */
 export interface Request {
@@ -121,6 +124,12 @@ export interface Request {
   query?: string;
   /** 是否包含 base64 数据（screenshot 命令使用） */
   includeBase64?: boolean;
+  /** 排除静态资源（trace events / network requests 使用） */
+  excludeStatic?: boolean;
+  /** source 子命令：grep */
+  sourceCommand?: string;
+  /** source 搜索模式 */
+  sourcePattern?: string;
 }
 
 /** 元素引用信息 */
@@ -350,7 +359,11 @@ export interface ResponseData {
   /** Trace session status */
   traceStatus?: TraceStatus;
   /** Trace response body (trace body command) */
-  traceBody?: { requestId: string; body: string; base64Encoded: boolean };
+  traceBody?: { requestId: string; body: string; base64Encoded: boolean; requestBody?: string };
+  /** Cookies for the current page (cookies command) */
+  cookies?: Array<{ name: string; value: string; domain: string; path: string; expires: number; httpOnly: boolean; secure: boolean }>;
+  /** Source grep results (source command) */
+  sourceResults?: Array<{ url: string; matches: string[] }>;
 }
 
 /** 错误信息 */

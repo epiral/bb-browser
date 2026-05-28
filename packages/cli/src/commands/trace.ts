@@ -13,6 +13,7 @@ interface TraceOptions {
   filter?: string;
   limit?: number;
   requestId?: string;
+  excludeStatic?: boolean;
 }
 
 export async function traceCommand(
@@ -31,6 +32,7 @@ export async function traceCommand(
     if (options.type) request.traceType = options.type;
     if (options.filter) request.filter = options.filter;
     if (options.limit) request.limit = Number(options.limit);
+    if (options.excludeStatic) request.excludeStatic = true;
   }
 
   // body-specific params
@@ -137,10 +139,20 @@ export async function traceCommand(
         console.error("No body data returned");
         break;
       }
-      if (body.base64Encoded) {
-        console.log(`[base64 encoded, ${body.body.length} chars]`);
-      } else {
-        console.log(body.body);
+      if (body.requestBody) {
+        console.log("=== Request Body ===");
+        console.log(body.requestBody);
+        console.log("");
+      }
+      if (body.body) {
+        if (body.requestBody) {
+          console.log("=== Response Body ===");
+        }
+        if (body.base64Encoded) {
+          console.log(`[base64 encoded, ${body.body.length} chars]`);
+        } else {
+          console.log(body.body);
+        }
       }
       break;
     }

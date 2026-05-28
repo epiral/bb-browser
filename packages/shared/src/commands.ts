@@ -50,6 +50,15 @@ export const COMMANDS: CommandDef[] = [
     },
   },
   {
+    method: "goto", group: "navigate",
+    description: "Navigate current tab to a URL (keeps tab context)",
+    requiresTab: true,
+    params: {
+      url: { type: "string", required: true, position: 0, description: "URL to navigate to" },
+      tab: { type: "string", required: false, description: "Tab ID" },
+    },
+  },
+  {
     method: "back", group: "navigate",
     description: "Navigate back in browser history",
     requiresTab: true,
@@ -315,6 +324,7 @@ export const COMMANDS: CommandDef[] = [
       status: { type: "string", required: false, description: "Filter by status: '4xx', '5xx', or exact code like '200'" },
       limit: { type: "number", required: false, description: "Max number of results to return" },
       withBody: { type: "boolean", required: false, description: "Include request and response bodies" },
+      excludeStatic: { type: "boolean", required: false, description: "Exclude static assets (.js, .css, .png, etc.)" },
       tab: { type: "string", required: true, description: "Tab short ID" },
     },
   },
@@ -354,6 +364,26 @@ export const COMMANDS: CommandDef[] = [
       filter: { type: "string", required: false, description: "URL or text substring filter" },
       limit: { type: "number", required: false, description: "Max number of events to return" },
       requestId: { type: "string", required: false, description: "Request ID (for trace body)" },
+      excludeStatic: { type: "boolean", required: false, description: "Exclude static assets (.js, .css, .png, etc.)" },
+    },
+  },
+  {
+    method: "cookies", group: "debug",
+    description: "List cookies for the current page",
+    requiresTab: true,
+    params: {
+      tab: { type: "string", required: false, description: "Tab ID" },
+      filter: { type: "string", required: false, description: "Filter by cookie name or domain" },
+    },
+  },
+  {
+    method: "source", group: "debug",
+    description: "Search loaded JavaScript sources (e.g. source grep '/api/')",
+    requiresTab: true,
+    params: {
+      sourceCommand: { type: "string", required: true, position: 0, description: "Subcommand: grep" },
+      sourcePattern: { type: "string", required: true, position: 1, description: "Search pattern (string or regex)" },
+      tab: { type: "string", required: false, description: "Tab ID" },
     },
   },
 ];

@@ -14,6 +14,7 @@ interface NetworkOptions {
   since?: string;
   method?: string;
   status?: string;
+  excludeStatic?: boolean;
 }
 
 export async function networkCommand(
@@ -37,6 +38,7 @@ export async function networkCommand(
       body: options.body,
     } : undefined,
     withBody: subCommand === "requests" ? options.withBody : undefined,
+    excludeStatic: subCommand === "requests" ? options.excludeStatic : undefined,
     since,
     httpMethod: subCommand === "requests" ? options.method : undefined,
     status: subCommand === "requests" ? options.status : undefined,
