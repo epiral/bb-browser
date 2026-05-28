@@ -16,8 +16,35 @@ import type {
   ConsoleMessageInfo,
   JSErrorInfo,
   RefInfo,
+  TraceEntry,
+  TraceAction,
 } from "@bb-browser/shared";
 import { RingBuffer } from "./ring-buffer.js";
+
+// ---------------------------------------------------------------------------
+// Trace session — lives on TabStateManager, spans multiple tabs
+// ---------------------------------------------------------------------------
+
+export interface TraceSession {
+  /** Whether recording is active */
+  active: boolean;
+  /** Set of targetIds being traced */
+  tracedTabs: Set<string>;
+  /** Unified timeline of all events across traced tabs */
+  timeline: TraceEntry[];
+  /** Seq at the start of recording */
+  startSeq: number;
+}
+
+/** Detail passed to recordAction when trace is active */
+export interface ActionDetail {
+  action: string;
+  ref?: number;
+  value?: string;
+  key?: string;
+  direction?: string;
+  url?: string;
+}
 
 // ---------------------------------------------------------------------------
 // Seq-tagged event wrappers
@@ -58,6 +85,9 @@ export class TabState {
   /** Dialog auto-handler config. */
   dialogHandler: { accept: boolean; promptText?: string } | null = null;
 
+  /** Reference to the manager (set after construction) */
+  manager!: TabStateManager;
+
   constructor(
     targetId: string,
     shortId: string,
@@ -69,10 +99,31 @@ export class TabState {
 
   // --------------- Action seq ---------------
 
-  /** Increment global seq and record it as this tab's last action. */
-  recordAction(): number {
+  /** Increment global seq and record it as this tab's last action.
+   *  When trace is active, pushes a TraceAction to the timeline. */
+  recordAction(detail?: ActionDetail): number {
     const seq = this.nextSeq();
     this.lastActionSeq = seq;
+
+    // Push to trace timeline if this tab is being traced
+    const session = this.manager?.traceSession;
+    if (session?.active && session.tracedTabs.has(this.targetId) && detail) {
+      const entry: TraceAction = {
+        seq,
+        ts: Date.now(),
+        tab: this.shortId,
+        type: 'action',
+        source: 'command',
+        action: detail.action,
+        ref: detail.ref,
+        value: detail.value,
+        key: detail.key,
+        direction: detail.direction,
+        url: detail.url,
+      };
+      session.timeline.push(entry);
+    }
+
     return seq;
   }
 
@@ -266,6 +317,9 @@ export class TabStateManager {
   private shortToTarget = new Map<string, string>(); // shortId -> targetId
   private targetToShort = new Map<string, string>(); // targetId -> shortId
 
+  /** Active trace session (at most one at a time) */
+  traceSession: TraceSession | null = null;
+
   /** Generate a globally unique short ID for a target. */
   private generateShortId(targetId: string): string {
     for (let len = 4; len <= targetId.length; len++) {
@@ -295,6 +349,7 @@ export class TabStateManager {
 
     const shortId = this.generateShortId(targetId);
     const tab = new TabState(targetId, shortId, () => this.nextSeq());
+    tab.manager = this;
     this.tabs.set(targetId, tab);
     this.shortToTarget.set(shortId, targetId);
     this.targetToShort.set(targetId, shortId);
@@ -333,5 +388,61 @@ export class TabStateManager {
   /** Get tab count. */
   get tabCount(): number {
     return this.tabs.size;
+  }
+
+  // --------------- Trace session helpers ---------------
+
+  /** Start a new trace session. If a targetId is given, only trace that tab
+   *  (plus any tabs it opens). If omitted, trace all current and future tabs. */
+  traceStart(targetId?: string): TraceSession {
+    const tracedTabs = new Set<string>();
+    if (targetId) {
+      tracedTabs.add(targetId);
+    } else {
+      for (const tid of this.tabs.keys()) tracedTabs.add(tid);
+    }
+    this.traceSession = {
+      active: true,
+      tracedTabs,
+      timeline: [],
+      startSeq: this.seq,
+    };
+    return this.traceSession;
+  }
+
+  /** Stop the current trace session. Data is preserved for querying. */
+  traceStop(): void {
+    if (this.traceSession) {
+      this.traceSession.active = false;
+    }
+  }
+
+  /** Push a trace entry (used by cdp-connection for network/navigation events). */
+  tracePush(entry: TraceEntry): void {
+    this.traceSession?.timeline.push(entry);
+  }
+
+  /** Check if a target is being traced. */
+  isTraced(targetId: string): boolean {
+    const s = this.traceSession;
+    return !!s?.active && s.tracedTabs.has(targetId);
+  }
+
+  /** Get shortId for a tab being traced, for building trace entries. */
+  getTabShortId(targetId: string): string | undefined {
+    return this.tabs.get(targetId)?.shortId;
+  }
+
+  /** Infer which action likely triggered a network request (heuristic). */
+  inferTriggerSeq(requestTs: number): number | undefined {
+    const tl = this.traceSession?.timeline;
+    if (!tl) return undefined;
+    for (let i = tl.length - 1; i >= 0; i--) {
+      const e = tl[i];
+      if (e.type !== 'action') continue;
+      if (requestTs - e.ts < 2000) return e.seq;
+      break; // action is too old
+    }
+    return undefined;
   }
 }

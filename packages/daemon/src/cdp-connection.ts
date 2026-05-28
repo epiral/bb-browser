@@ -470,7 +470,19 @@ export class CdpConnection {
         const params = message.params as JsonObject;
         const targetInfo = params.targetInfo as JsonObject;
         if (targetInfo?.type === "page" && typeof targetInfo.targetId === "string") {
-          this.attachAndEnable(targetInfo.targetId).catch(() => {});
+          const newTargetId = targetInfo.targetId;
+          const openerId = typeof targetInfo.openerId === "string" ? targetInfo.openerId : undefined;
+          this.attachAndEnable(newTargetId).catch(() => {});
+
+          // Auto-join trace session if opener is being traced
+          const session = this.tabManager.traceSession;
+          if (session?.active && openerId && session.tracedTabs.has(openerId)) {
+            session.tracedTabs.add(newTargetId);
+            // Enable human capture on the new tab (delay to let attach complete)
+            setTimeout(() => {
+              this.enableHumanCapture(newTargetId).catch(() => {});
+            }, 500);
+          }
         }
         return;
       }
@@ -550,14 +562,36 @@ export class CdpConnection {
       const requestId = typeof params.requestId === "string" ? params.requestId : undefined;
       const request = params.request as JsonObject | undefined;
       if (!requestId || !request) return;
+      const url = String(request.url ?? "");
+      const reqMethod = String(request.method ?? "GET");
+      const resourceType = String(params.type ?? "Other");
+      const headers = normalizeHeaders(request.headers);
+      const body = typeof request.postData === "string" ? request.postData : undefined;
       tab.addNetworkRequest(requestId, {
-        url: String(request.url ?? ""),
-        method: String(request.method ?? "GET"),
-        type: String(params.type ?? "Other"),
+        url,
+        method: reqMethod,
+        type: resourceType,
         timestamp: Math.round(Number(params.timestamp ?? Date.now()) * 1000),
-        requestHeaders: normalizeHeaders(request.headers),
-        requestBody: typeof request.postData === "string" ? request.postData : undefined,
+        requestHeaders: headers,
+        requestBody: body,
       });
+      // Push to trace timeline
+      if (this.tabManager.isTraced(targetId)) {
+        const now = Date.now();
+        this.tabManager.tracePush({
+          seq: this.tabManager.nextSeq(),
+          ts: now,
+          tab: tab.shortId,
+          type: 'request',
+          requestId,
+          method: reqMethod,
+          url,
+          resourceType,
+          headers,
+          body,
+          triggerSeq: this.tabManager.inferTriggerSeq(now),
+        });
+      }
       return;
     }
 
@@ -565,12 +599,26 @@ export class CdpConnection {
       const requestId = typeof params.requestId === "string" ? params.requestId : undefined;
       const response = params.response as JsonObject | undefined;
       if (!requestId || !response) return;
+      const status = typeof response.status === "number" ? response.status : 0;
+      const mimeType = typeof response.mimeType === "string" ? response.mimeType : undefined;
       tab.updateNetworkResponse(requestId, {
         status: typeof response.status === "number" ? response.status : undefined,
         statusText: typeof response.statusText === "string" ? response.statusText : undefined,
         responseHeaders: normalizeHeaders(response.headers),
-        mimeType: typeof response.mimeType === "string" ? response.mimeType : undefined,
+        mimeType,
       });
+      // Push to trace timeline
+      if (this.tabManager.isTraced(targetId)) {
+        this.tabManager.tracePush({
+          seq: this.tabManager.nextSeq(),
+          ts: Date.now(),
+          tab: tab.shortId,
+          type: 'response',
+          requestId,
+          status,
+          mimeType,
+        });
+      }
       return;
     }
 
@@ -655,6 +703,31 @@ export class CdpConnection {
             : undefined,
         timestamp: Date.now(),
       });
+    }
+
+    // Human action capture via Runtime.bindingCalled
+    if (method === "Runtime.bindingCalled") {
+      const name = params.name;
+      const payload = params.payload;
+      if (name === "__bb_trace" && typeof payload === "string" && this.tabManager.isTraced(targetId)) {
+        try {
+          const data = JSON.parse(payload) as Record<string, unknown>;
+          this.tabManager.tracePush({
+            seq: this.tabManager.nextSeq(),
+            ts: Date.now(),
+            tab: tab.shortId,
+            type: 'action',
+            source: 'human',
+            action: String(data.action ?? 'unknown'),
+            selector: typeof data.selector === 'string' ? data.selector : undefined,
+            text: typeof data.text === 'string' ? data.text : undefined,
+            role: typeof data.role === 'string' ? data.role : undefined,
+            tag: typeof data.tag === 'string' ? data.tag : undefined,
+            value: typeof data.value === 'string' ? data.value : undefined,
+            key: typeof data.key === 'string' ? data.key : undefined,
+          });
+        } catch {}
+      }
     }
   }
 
@@ -753,6 +826,57 @@ export class CdpConnection {
     }
 
     return result.sessionId;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Human action capture for trace
+  // ---------------------------------------------------------------------------
+
+  private static readonly HUMAN_CAPTURE_SCRIPT = `(function() {
+    if (window.__bb_trace_installed) return;
+    window.__bb_trace_installed = true;
+    function report(data) {
+      try { window.__bb_trace(JSON.stringify(data)); } catch(e) {}
+    }
+    function meta(el) {
+      if (!el || !el.tagName) return {};
+      return {
+        tag: el.tagName,
+        text: (el.innerText || '').slice(0, 80).trim(),
+        role: el.getAttribute ? el.getAttribute('role') : undefined,
+        selector: el.id ? '#' + el.id
+          : el.className && typeof el.className === 'string' ? el.tagName.toLowerCase() + '.' + el.className.split(' ')[0]
+          : el.tagName.toLowerCase(),
+      };
+    }
+    document.addEventListener('click', function(e) {
+      report({ action: 'click', ...meta(e.target), x: e.clientX, y: e.clientY });
+    }, true);
+    document.addEventListener('input', function(e) {
+      report({ action: 'input', ...meta(e.target), value: e.target.value });
+    }, true);
+    document.addEventListener('keydown', function(e) {
+      if (['Enter','Tab','Escape','Backspace','Delete'].indexOf(e.key) >= 0 || e.ctrlKey || e.metaKey) {
+        report({ action: 'press', key: e.key, ...meta(e.target) });
+      }
+    }, true);
+    document.addEventListener('submit', function(e) {
+      report({ action: 'submit', ...meta(e.target) });
+    }, true);
+  })();`;
+
+  /** Inject human action capture listeners into a tab via CDP binding. */
+  async enableHumanCapture(targetId: string): Promise<void> {
+    try {
+      await this.sessionCommand(targetId, "Runtime.addBinding", { name: "__bb_trace" });
+    } catch {
+      // Binding may already exist
+    }
+    await this.sessionCommand(targetId, "Page.addScriptToEvaluateOnNewDocument", {
+      source: CdpConnection.HUMAN_CAPTURE_SCRIPT,
+    }).catch(() => {});
+    // Also evaluate immediately for the current page
+    await this.evaluate(targetId, CdpConnection.HUMAN_CAPTURE_SCRIPT, false).catch(() => {});
   }
 
   /** Get all targets via CDP Target.getTargets. */

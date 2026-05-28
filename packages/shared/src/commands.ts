@@ -344,11 +344,16 @@ export const COMMANDS: CommandDef[] = [
   },
   {
     method: "trace", group: "debug",
-    description: "Record user interactions for replay or code generation",
-    requiresTab: true,
+    description: "Record a unified timeline of actions + network requests for site adapter creation",
+    requiresTab: false,
     params: {
-      traceCommand: { type: "string", required: true, position: 0, description: "Trace sub-command (start/stop/status)" },
-      tab: { type: "string", required: true, description: "Tab short ID" },
+      traceCommand: { type: "string", required: true, position: 0, description: "Trace sub-command (start/stop/status/events/body)" },
+      tab: { type: "string", required: false, description: "Tab short ID (start: trace only this tab; events: filter by tab)" },
+      since: { type: "string", required: false, description: "Incremental query cursor (seq number)" },
+      type: { type: "string", required: false, description: "Filter by event type: action, request, response, navigation" },
+      filter: { type: "string", required: false, description: "URL or text substring filter" },
+      limit: { type: "number", required: false, description: "Max number of events to return" },
+      requestId: { type: "string", required: false, description: "Request ID (for trace body)" },
     },
   },
 ];

@@ -38,7 +38,7 @@ const TAB_REQUIRED_COMMANDS = new Set([
   "snap", "screenshot", "get",
   "click", "hover", "fill", "type", "check", "uncheck", "select",
   "press", "scroll", "back", "forward", "reload", "close",
-  "frame", "dialog", "network", "console", "errors", "trace",
+  "frame", "dialog", "network", "console", "errors",
 ]);
 
 // eval requires --tab unless --domain is provided
@@ -220,6 +220,30 @@ function parseArgs(argv: string[]): ParsedArgs {
       skipNext = true;
     } else if (arg === "--status") {
       skipNext = true;
+    } else if (arg === "--type") {
+      skipNext = true;
+      const nextIdx = args.indexOf(arg) + 1;
+      if (nextIdx < args.length) {
+        (result.flags as Record<string, unknown>).type = args[nextIdx];
+      }
+    } else if (arg === "--filter") {
+      skipNext = true;
+      const nextIdx = args.indexOf(arg) + 1;
+      if (nextIdx < args.length) {
+        (result.flags as Record<string, unknown>).filter = args[nextIdx];
+      }
+    } else if (arg === "--limit") {
+      skipNext = true;
+      const nextIdx = args.indexOf(arg) + 1;
+      if (nextIdx < args.length) {
+        (result.flags as Record<string, unknown>).limit = parseInt(args[nextIdx], 10);
+      }
+    } else if (arg === "--request-id") {
+      skipNext = true;
+      const nextIdx = args.indexOf(arg) + 1;
+      if (nextIdx < args.length) {
+        (result.flags as Record<string, unknown>)["request-id"] = args[nextIdx];
+      }
     } else if (arg.startsWith("-")) {
       // Unknown flags, ignore
     } else if (result.command === null) {
@@ -559,12 +583,21 @@ async function main(): Promise<void> {
       }
 
       case "trace": {
-        const subCmd = parsed.args[0] as 'start' | 'stop' | 'status' | undefined;
-        if (!subCmd || !['start', 'stop', 'status'].includes(subCmd)) {
-          console.error("用法：bb-browser trace <start|stop|status> --tab <tabId>");
+        const subCmd = parsed.args[0] as 'start' | 'stop' | 'status' | 'events' | 'body' | undefined;
+        if (!subCmd || !['start', 'stop', 'status', 'events', 'body'].includes(subCmd)) {
+          console.error("用法：bb-browser trace <start|stop|status|events|body> [--tab <tabId>]");
           process.exit(1);
         }
-        await traceCommand(subCmd, { json: parsed.flags.json, tabId: globalTabId });
+        const f = parsed.flags as Record<string, unknown>;
+        await traceCommand(subCmd, {
+          json: parsed.flags.json,
+          tabId: globalTabId,
+          since: globalSince,
+          type: f.type as string | undefined,
+          filter: f.filter as string | undefined,
+          limit: f.limit as number | undefined,
+          requestId: (f["request-id"] as string | undefined) || parsed.args[1],
+        });
         break;
       }
 

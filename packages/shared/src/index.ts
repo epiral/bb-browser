@@ -16,7 +16,11 @@ export {
   type ResponseError,
   type SnapshotData,
   type TabInfo,
-  type TraceEvent,
+  type TraceEntry,
+  type TraceAction,
+  type TraceRequest,
+  type TraceResponse,
+  type TraceNavigation,
   type TraceStatus,
 } from "./protocol.js";
 
