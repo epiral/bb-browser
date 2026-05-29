@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.11.7](https://github.com/epiral/bb-browser/compare/bb-browser-v0.11.6...bb-browser-v0.11.7) (2026-05-29)
+
+
+### Features
+
+* **cdp:** inject stealth script on daemon controlConn ([9d8c206](https://github.com/epiral/bb-browser/commit/9d8c206bf1302cdb3c8a86355a8754719becf453))
+* **chrome:** prefer full Chrome over headless-shell, dynamic UA version ([c05bfd0](https://github.com/epiral/bb-browser/commit/c05bfd04c2bba567e3e33bd481c122e39800d3b0))
+* **daemon:** auto-download and manage Chrome headless-shell ([#120](https://github.com/epiral/bb-browser/issues/120)) ([6837152](https://github.com/epiral/bb-browser/commit/6837152c8e3f1069a5d3e3025b056fd63a3b12b7))
+* Docker support + fix streamer spawn crash ([22f2781](https://github.com/epiral/bb-browser/commit/22f2781de300335940c0477e045aa635a94cb99f))
+* **dx:** goto, cookies, source grep, trace --exclude-static, network --exclude-static ([#231](https://github.com/epiral/bb-browser/issues/231)) ([34ada9c](https://github.com/epiral/bb-browser/commit/34ada9c89312c845e96b26f29dbddf9c8d127a9c))
+* **eval:** add domain tab routing and args injection ([#229](https://github.com/epiral/bb-browser/issues/229)) ([e7a3df2](https://github.com/epiral/bb-browser/commit/e7a3df2f025cacb7aed438e835a2810d7a5fd522))
+* move site adapter execution from CLI to daemon (Phase 3) ([c7bd48a](https://github.com/epiral/bb-browser/commit/c7bd48a9000c8dc6f56d402bc9b4ccd78257bd46))
+* Phase 4 — merge provider into daemon with --hub mode ([635443f](https://github.com/epiral/bb-browser/commit/635443fe05e0a01ed6c9b1d7dccf0e1c449ceb9d))
+* remote browser viewing via Clip Web UI ([#220](https://github.com/epiral/bb-browser/issues/220)) ([4815d77](https://github.com/epiral/bb-browser/commit/4815d776c13d033605b12b0f4668ed7efb842841))
+* **streamer:** auto-download pre-built bb-viewer binary from COS ([efd9f01](https://github.com/epiral/bb-browser/commit/efd9f0119a9598522b984d3277cd276481282a54))
+* **trace:** 统一时间线——操作 + 网络请求录制，用于 site adapter 创建 ([#230](https://github.com/epiral/bb-browser/issues/230)) ([ca29602](https://github.com/epiral/bb-browser/commit/ca29602ba5a31af0392ee9c52a93c8a11e23ded5))
+* **turn:** built-in public TURN server, no env vars needed ([a5114da](https://github.com/epiral/bb-browser/commit/a5114da2fad085ef81d8ad1bcb449c8fa951b4d6))
+* **turn:** fetch credentials from Hub API, remove hardcoded secret ([b2d90b8](https://github.com/epiral/bb-browser/commit/b2d90b8386eb5c5199bf38e087b094c0ab41e6b4))
+* **view:** heartbeat ping + idle timeout + visibility-based disconnect ([#226](https://github.com/epiral/bb-browser/issues/226)) ([e60412f](https://github.com/epiral/bb-browser/commit/e60412f5fdfa1a0cf644d68cec9ad345d041e590))
+* **view:** route tab/nav commands through bb-viewer ([03f7604](https://github.com/epiral/bb-browser/commit/03f7604ae3fc45cce7cbcc8c30d73b4c43a7dd48))
+* **web:** add tab bar, URL bar, and debug panel to remote viewer ([#222](https://github.com/epiral/bb-browser/issues/222)) ([80e4e37](https://github.com/epiral/bb-browser/commit/80e4e37056a5aad98c6dcb4221f6d51b81af9eac))
+
+
+### Bug Fixes
+
+* **chrome:** always launch headed, drop --headless=new entirely ([4baa834](https://github.com/epiral/bb-browser/commit/4baa834e57f5a2c8944e571ee3ea2a3aa288f022))
+* **chrome:** open about:blank on launch so daemon has a default tab ([ff7d742](https://github.com/epiral/bb-browser/commit/ff7d742aa4dda639eb290f02fab0b15bf83f4677))
+* daemon lifecycle — stop stale daemon on startup and CDP port mismatch ([#224](https://github.com/epiral/bb-browser/issues/224)) ([811ae49](https://github.com/epiral/bb-browser/commit/811ae495921d220f0f9dad846649e875ab41a850))
+* disable stealth injection, update Docker for full Chrome ([4e52e7e](https://github.com/epiral/bb-browser/commit/4e52e7e20a83bfa38ecb1b4950f78f501e7fc4b5))
+* **docker:** multi-stage build for bb-viewer, add runtime libs ([27490e9](https://github.com/epiral/bb-browser/commit/27490e96b5d51227df66c7b3bdd52220c58e4fd8))
+* **docker:** use Xvfb + headed Chrome to bypass anti-bot detection ([ddbe72e](https://github.com/epiral/bb-browser/commit/ddbe72e20716653b962d5eeec4f8ac054d4f5ea5))
+* fire stream.close without awaiting, then immediately cleanup. ([e60412f](https://github.com/epiral/bb-browser/commit/e60412f5fdfa1a0cf644d68cec9ad345d041e590))
+* **hub-bridge:** skip streamer call on stream.close when no streamer running ([113f3b1](https://github.com/epiral/bb-browser/commit/113f3b1e64a29d59d49fbd1b80e861a617265b16))
+* include web/ in npm package for Clip Web UI ([7c972fc](https://github.com/epiral/bb-browser/commit/7c972fc1d952a3e6688341a3607dd7d4846128c2))
+* **provider:** pass CDP_PORT to daemon when spawning ([f73d035](https://github.com/epiral/bb-browser/commit/f73d03551ae5c141ce53b79b1c80ed0012a969e3))
+* **site-adapter:** preload _helper.js before executing site adapters ([f0b2100](https://github.com/epiral/bb-browser/commit/f0b2100c32821a7ed11105931293679c969004be))
+* **stealth:** align UA version with actual Chrome binary (149.0.7827.22) ([9ed8728](https://github.com/epiral/bb-browser/commit/9ed872837ed0b2a890a76c16de314de3062a47b7))
+* **stealth:** fix screen size, webdriver value, and plugin count ([604a304](https://github.com/epiral/bb-browser/commit/604a30402a96d887b5bc96d4dc59cacfbe8ab688))
+* **stealth:** only inject stealth for headless-shell, skip for full Chrome ([5dffaf9](https://github.com/epiral/bb-browser/commit/5dffaf93024945ad9484e7a20c4b834e071d621c))
+* **stealth:** use browserCommand for version detection, not sessionCommand ([12cb7ca](https://github.com/epiral/bb-browser/commit/12cb7ca64e68fb31c37da8e4bdfc60685a09f3d9))
+* support CHROME_WINDOW_SIZE env, disable stealth, clean Dockerfile ([4ddcb14](https://github.com/epiral/bb-browser/commit/4ddcb141a61e5e326eef875878b63869a21e2928))
+* unwrap streamer result in hub-bridge stream.* handlers ([c7d4d94](https://github.com/epiral/bb-browser/commit/c7d4d94c3dceaa0ec9f4f2adf373e99be6af23f6))
+* **view:** allow tab switching when stream is disconnected ([403f295](https://github.com/epiral/bb-browser/commit/403f29592f0aeedcb075965c3ec9d7a95c6e6e7b))
+* **view:** correct mouse button mapping and clean up dead code ([6f7aeef](https://github.com/epiral/bb-browser/commit/6f7aeefa9c2076b49cc3bd3678fe8120e6917e04))
+* **view:** prevent stuck modifier keys on remote Chrome ([bf6ab49](https://github.com/epiral/bb-browser/commit/bf6ab49cf91a1990d5d1db910f8afe72fb5cd2f2))
+* **web:** polish remote viewer UI ([#223](https://github.com/epiral/bb-browser/issues/223)) ([bad09de](https://github.com/epiral/bb-browser/commit/bad09debe1ea8d4ef8da42232e7c6c1fed3ed821))
+
 ## [0.11.6](https://github.com/epiral/bb-browser/compare/bb-browser-v0.11.5...bb-browser-v0.11.6) (2026-05-11)
 
 
