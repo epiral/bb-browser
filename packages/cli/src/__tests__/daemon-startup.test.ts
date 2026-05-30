@@ -15,11 +15,12 @@
 
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { spawn, execSync } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { readFileSync, writeFileSync, unlinkSync, mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import http from "node:http";
+import { shouldExitAfterMain } from "../lifecycle.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -420,5 +421,25 @@ describe("CDP 503 error includes diagnostics", () => {
     } finally {
       await new Promise<void>(resolve => fakeCdp.close(() => resolve()));
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MCP stdio lifecycle
+// ---------------------------------------------------------------------------
+
+describe("MCP stdio lifecycle", () => {
+  it("does not exit the CLI parent immediately in --mcp mode", () => {
+    assert.equal(
+      shouldExitAfterMain(["node", "cli.js", "--mcp"]),
+      false,
+    );
+  });
+
+  it("keeps normal CLI commands exiting after main completes", () => {
+    assert.equal(
+      shouldExitAfterMain(["node", "cli.js", "snapshot"]),
+      true,
+    );
   });
 });
