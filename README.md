@@ -132,7 +132,7 @@ An agent can now, in under a minute:
 # Cross-platform research on any topic
 bb-browser site arxiv/search "retrieval augmented generation"
 bb-browser site twitter/search "RAG"
-bb-browser site github search rag-framework
+bb-browser site github/search rag-framework
 bb-browser site stackoverflow/search "RAG implementation"
 bb-browser site zhihu/search "RAG"
 bb-browser site 36kr/newsflash
