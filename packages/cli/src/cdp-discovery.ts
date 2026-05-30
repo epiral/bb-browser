@@ -73,12 +73,24 @@ async function tryOpenClaw(): Promise<{ host: string; port: number } | null> {
 }
 
 async function canConnect(host: string, port: number): Promise<boolean> {
+  // 优先尝试标准 HTTP 发现端点
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 1200);
     const response = await fetch(`http://${host}:${port}/json/version`, { signal: controller.signal });
     clearTimeout(timeout);
-    return response.ok;
+    if (response.ok) return true;
+  } catch {}
+  // Fallback: TCP 端口检测（不触发浏览器 CDP 权限弹框）
+  // Chrome 136+ 默认 profile 下 HTTP 端点返回 404，但端口本身是开放的
+  try {
+    const { connect } = await import("node:net");
+    return await new Promise<boolean>((resolve) => {
+      const sock = connect(port, host);
+      const timer = setTimeout(() => { sock.destroy(); resolve(false); }, 1500);
+      sock.once("connect", () => { clearTimeout(timer); sock.destroy(); resolve(true); });
+      sock.once("error", () => { clearTimeout(timer); resolve(false); });
+    });
   } catch {
     return false;
   }
