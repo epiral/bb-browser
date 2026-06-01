@@ -155,7 +155,7 @@ export interface TabInfo {
   title: string;
   /** 是否是当前活动标签页 */
   active: boolean;
-  /** 标签页 ID（CDP targetId 或 extension tabId） */
+  /** 标签页 ID（CDP targetId 或 daemon short ID） */
   tabId: number | string;
   /** 短标签页 ID（daemon 模式） */
   tab?: string;
@@ -396,5 +396,4 @@ export interface DaemonStatus {
     lastActionSeq: number;
   }>;
 }
-
 

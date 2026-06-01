@@ -330,10 +330,17 @@ async function main(): Promise<void> {
   // Clean up any stale daemon before starting
   await cleanupStaleDaemon();
 
-  // Auto-manage Chrome headless-shell (unless --no-chrome)
+  // Prefer an already-available CDP endpoint (explicit port or managed port
+  // file). Only launch Chrome if nothing is reachable.
   let chromeProcess: ChildProcess | null = null;
+  let cdpEndpoint: { host: string; port: number } | null = null;
 
-  if (!options.noChrome) {
+  try {
+    cdpEndpoint = await discoverCdpPort(options.cdpHost, options.cdpPort);
+  } catch {}
+
+  // Auto-manage Chrome headless-shell (unless --no-chrome)
+  if (!cdpEndpoint && !options.noChrome) {
     const chrome = createChromeManager();
 
     // Ensure headless-shell binary is available (download if needed)
@@ -361,23 +368,23 @@ async function main(): Promise<void> {
       try {
         chromeProcess = chrome.launch(options.cdpPort);
         await chrome.waitForCdp(options.cdpHost, options.cdpPort);
+        cdpEndpoint = { host: options.cdpHost, port: options.cdpPort };
       } catch (error) {
         console.error(`[Daemon] Failed to launch Chrome: ${error instanceof Error ? error.message : String(error)}`);
       }
     } else {
       console.error(`[Daemon] Chrome already running on port ${options.cdpPort}`);
+      cdpEndpoint = { host: options.cdpHost, port: options.cdpPort };
     }
   }
 
   // Create tab state manager and CDP connection
   const tabManager = new TabStateManager();
-  let cdpEndpoint: { host: string; port: number };
 
-  try {
-    cdpEndpoint = await discoverCdpPort(options.cdpHost, options.cdpPort);
-  } catch (error) {
+  if (!cdpEndpoint) {
     console.error(
-      `[Daemon] ${error instanceof Error ? error.message : String(error)}`,
+      `[Daemon] Cannot connect to Chrome CDP at ${options.cdpHost}:${options.cdpPort}. ` +
+      `Make sure Chrome is running with --remote-debugging-port=${options.cdpPort}`,
     );
     process.exit(1);
   }

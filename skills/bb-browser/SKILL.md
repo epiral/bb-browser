@@ -222,7 +222,6 @@ bb-browser trace status                             # 查看录制状态
 ```bash
 --json               # 以 JSON 格式输出（所有命令通用）
 --tab <tabId>        # 指定操作的标签页 ID（几乎所有命令通用）
---mcp                # 启动 MCP server（用于 Claude Code / Cursor 等 AI 工具）
 ```
 
 ## Ref 使用说明
@@ -293,27 +292,6 @@ bb-browser click @1
 ```
 
 `-i` 只显示可交互元素，过滤掉大量无关内容。
-
-## MCP 集成
-
-bb-browser 提供 MCP server，可与 Claude Code / Cursor 等 AI 工具集成：
-
-```bash
-# 启动 MCP server
-bb-browser --mcp
-```
-
-配置示例（Claude Code / Cursor）：
-```json
-{
-  "mcpServers": {
-    "bb-browser": {
-      "command": "npx",
-      "args": ["-y", "bb-browser", "--mcp"]
-    }
-  }
-}
-```
 
 ## 常见任务示例
 

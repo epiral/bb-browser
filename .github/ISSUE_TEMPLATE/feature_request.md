@@ -38,12 +38,11 @@ Explain the user value, workflow gap, or agent use case.
 Check anything relevant:
 
 - [ ] CLI command
-- [ ] Extension behavior
 - [ ] Daemon behavior
 - [ ] `site` adapter
 - [ ] OpenClaw integration
+- [ ] Hub / remote agent workflow
 - [ ] JSON output
-- [ ] MCP / agent workflow
 
 ## Alternatives Considered / 备选方案
 

@@ -17,9 +17,9 @@ Describe the problem in one or two sentences.
 bb-browser ...
 ```
 
-If relevant, include the exact command you ran and whether you used `--json`, `--openclaw`, or `--mcp`.
+If relevant, include the exact command you ran and whether you used `--json` or `--openclaw`.
 
-如果相关，请贴出你实际运行的完整命令，并说明是否使用了 `--json`、`--openclaw` 或 `--mcp`。
+如果相关，请贴出你实际运行的完整命令，并说明是否使用了 `--json` 或 `--openclaw`。
 
 ## Steps To Reproduce / 复现步骤
 
@@ -42,11 +42,11 @@ What actually happened?
 ## Environment / 环境信息
 
 - `bb-browser` version:
-- Install method (`npm -g`, `npx`, local build, MCP, other):
+- Install method (`npm -g`, `npx`, local build, other):
 - OS:
 - Node.js version:
 - Browser:
-- Extension installed? (`yes` / `no`)
+- Chrome CDP source (`managed Chrome`, external `BB_BROWSER_CDP_URL`, other):
 - OpenClaw used? (`yes` / `no`)
 
 ## Logs Or Output / 日志与输出

@@ -30,33 +30,6 @@ export interface CdpTargetInfo {
   url: string;
 }
 
-// ---------------------------------------------------------------------------
-// Stealth — hide headless/automation fingerprints
-// ---------------------------------------------------------------------------
-
-const STEALTH_USER_AGENT =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.7827.22 Safari/537.36";
-
-const STEALTH_UA_METADATA = {
-  brands: [
-    { brand: "Chromium", version: "149" },
-    { brand: "Google Chrome", version: "149" },
-    { brand: "Not.A/Brand", version: "24" },
-  ],
-  fullVersionList: [
-    { brand: "Chromium", version: "149.0.7827.22" },
-    { brand: "Google Chrome", version: "149.0.7827.22" },
-    { brand: "Not.A/Brand", version: "24.0.0.0" },
-  ],
-  platform: "macOS",
-  platformVersion: "10.15.7",
-  architecture: "x86",
-  bitness: "64",
-  model: "",
-  mobile: false,
-  wow64: false,
-};
-
 const STEALTH_SCRIPT = `
 (() => {
   if (window.__bbStealthApplied) return;

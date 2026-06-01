@@ -55,7 +55,7 @@ export async function openCommand(
       (request as Record<string, unknown>).tabId = tabId;
     }
   }
-  // 不指定 --tab 时，tabId 为 undefined，扩展会创建新 tab
+  // 不指定 --tab 时，tabId 为 undefined，daemon 会创建新 tab
 
   // 发送请求
   const response: Response = await sendCommand(request);

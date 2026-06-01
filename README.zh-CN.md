@@ -71,19 +71,6 @@ bb-browser site xueqiu/hot-stock 5 --openclaw --jq '.items[] | {name, changePerc
 
 ClawHub Skill: [bb-browser-openclaw](https://clawhub.ai/yan5xu/bb-browser)
 
-### MCP 接入（Claude Code / Cursor）
-
-```json
-{
-  "mcpServers": {
-    "bb-browser": {
-      "command": "npx",
-      "args": ["-y", "bb-browser", "--mcp"]
-    }
-  }
-}
-```
-
 ## 36 个平台，103 个命令
 
 社区驱动，通过 [bb-sites](https://github.com/epiral/bb-sites) 维护。每个命令一个 JS 文件。
@@ -176,7 +163,7 @@ bb-browser daemon --host 0.0.0.0      # 监听所有网卡（用于 Tailscale / 
 
 ```
 AI Agent (Claude Code, Codex, Cursor 等)
-       │ CLI 或 MCP (stdio)
+       │ CLI
        ▼
 bb-browser CLI ──HTTP──▶ Daemon ──CDP WebSocket──▶ 你的真实浏览器
                            │
@@ -187,6 +174,9 @@ bb-browser CLI ──HTTP──▶ Daemon ──CDP WebSocket──▶ 你的真
                     │  console,   │
                     │  errors)    │
                     └─────────────┘
+
+可选 Hub 模式会把 daemon 注册到 Pinix Hub，远程客户端也可以通过 daemon
+调用同一套浏览器命令。
 ```
 
 ## 许可证

@@ -60,9 +60,9 @@ bb-browser site recommend     # see which adapters match your browsing habits
 bb-browser site zhihu/hot     # go
 ```
 
-### OpenClaw (no extension needed)
+### OpenClaw (no daemon needed)
 
-If you use [OpenClaw](https://openclaw.ai), bb-browser runs directly through OpenClaw's built-in browser — no Chrome extension or daemon required:
+If you use [OpenClaw](https://openclaw.ai), bb-browser runs directly through OpenClaw's built-in browser — no local daemon required:
 
 ```bash
 bb-browser site reddit/hot --openclaw
@@ -70,19 +70,6 @@ bb-browser site xueqiu/hot-stock 5 --openclaw --jq '.items[] | {name, changePerc
 ```
 
 Skill on ClawHub: [bb-browser-openclaw](https://clawhub.ai/yan5xu/bb-browser)
-
-### MCP (Claude Code / Cursor)
-
-```json
-{
-  "mcpServers": {
-    "bb-browser": {
-      "command": "npx",
-      "args": ["-y", "bb-browser", "--mcp"]
-    }
-  }
-}
-```
 
 ## 36 platforms, 103 commands
 
@@ -176,7 +163,7 @@ bb-browser daemon --host 0.0.0.0      # listen on all interfaces (for Tailscale 
 
 ```
 AI Agent (Claude Code, Codex, Cursor, etc.)
-       │ CLI or MCP (stdio)
+       │ CLI
        ▼
 bb-browser CLI ──HTTP──▶ Daemon ──CDP WebSocket──▶ Your Real Browser
                            │
@@ -187,6 +174,9 @@ bb-browser CLI ──HTTP──▶ Daemon ──CDP WebSocket──▶ Your Real
                     │  console,   │
                     │  errors)    │
                     └─────────────┘
+
+Optional Hub mode registers the daemon with Pinix Hub so remote clients can
+invoke the same browser commands through the daemon.
 ```
 
 ## License
