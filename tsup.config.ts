@@ -11,6 +11,7 @@ export default defineConfig({
     daemon: "packages/daemon/src/index.ts",
     mcp: "packages/mcp/src/index.ts",
     provider: "bin/bb-browser-provider.ts",
+    clip: "bin/bb-browser-clip.ts",
   },
   format: ["esm"],
   dts: false,

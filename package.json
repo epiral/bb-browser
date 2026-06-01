@@ -6,7 +6,8 @@
   "bin": {
     "bb-browser": "./dist/cli.js",
     "bb-browser-mcp": "./dist/mcp.js",
-    "bb-browser-provider": "./dist/provider.js"
+    "bb-browser-provider": "./dist/provider.js",
+    "bb-browser-clip": "./dist/clip.js"
   },
   "main": "./dist/cli.js",
   "files": [

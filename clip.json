@@ -3,7 +3,7 @@
   "version": "0.10.1",
   "description": "Browser Edge Clip — 浏览器自动化能力",
   "runtime": "bun",
-  "main": "index.ts",
+  "main": "dist/clip.js",
   "author": "yan5xu",
   "license": "MIT"
 }
