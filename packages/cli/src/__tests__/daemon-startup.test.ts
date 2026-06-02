@@ -5,12 +5,9 @@
  *   - #141: IPv6/IPv4 mismatch
  *   - #118: daemon exits immediately
  *
- * Root cause: daemon-manager.ts spawns daemon without passing CDP info,
- * daemon's own discoverCdpPort only tries port 9222 + managed port file,
- * does NOT auto-launch Chrome. CLI's cdp-discovery.ts has full 6-level
- * discovery (including auto-launch) but daemon never uses it.
- *
- * These tests verify the startup chain WITHOUT requiring a real Chrome browser.
+ * Daemon auto-manages Chrome by default. These tests exercise external CDP
+ * startup paths with fake CDP servers and --no-chrome so CI does not depend on
+ * the host machine's real Chrome state.
  */
 
 import { describe, it, beforeEach, afterEach } from "node:test";
@@ -110,19 +107,20 @@ function isProcessAlive(pid: number): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Test: Daemon with no Chrome — reproduces #136, #143
+// Test: Daemon with no external CDP in --no-chrome mode
 // ---------------------------------------------------------------------------
 
-describe("daemon startup without Chrome", () => {
+describe("daemon startup without external Chrome", () => {
   beforeEach(() => {
     cleanupDaemonJson();
     cleanupManagedPortFile();
   });
 
   it("daemon exits with error when no CDP is available", async () => {
-    // Spawn daemon with a port that nothing is listening on
+    // Spawn daemon with Chrome management disabled and a CDP port that
+    // nothing is listening on.
     const unusedPort = 39999;
-    const child = spawn(TSX, [DAEMON_ENTRY, "--cdp-port", String(unusedPort)], {
+    const child = spawn(TSX, [DAEMON_ENTRY, "--no-chrome", "--cdp-port", String(unusedPort)], {
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -138,11 +136,9 @@ describe("daemon startup without Chrome", () => {
     assert.equal(readDaemonJson(), null, "daemon.json should NOT be written on failure");
   });
 
-  it("ensureDaemon flow fails within 5s when daemon cannot start (current bug)", async () => {
-    // This reproduces what users see: CLI spawns daemon, daemon can't find Chrome, exits
-    // CLI waits 5 seconds, never sees daemon.json, throws "Daemon did not start in time"
+  it("daemon does not write daemon.json when external CDP is unavailable", async () => {
     const unusedPort = 39999;
-    const child = spawn(TSX, [DAEMON_ENTRY, "--cdp-port", String(unusedPort)], {
+    const child = spawn(TSX, [DAEMON_ENTRY, "--no-chrome", "--cdp-port", String(unusedPort)], {
       detached: true,
       stdio: "ignore",
     });
@@ -183,7 +179,7 @@ describe("daemon startup with CDP available", () => {
   });
 
   it("daemon starts successfully when CDP port is reachable", async () => {
-    const child = spawn(TSX, [DAEMON_ENTRY, "--cdp-port", String(cdpPort), "--port", "39997"], {
+    const child = spawn(TSX, [DAEMON_ENTRY, "--no-chrome", "--cdp-port", String(cdpPort), "--port", "39997"], {
       detached: true,
       stdio: "ignore",
     });
@@ -199,7 +195,7 @@ describe("daemon startup with CDP available", () => {
   });
 
   it("daemon writes correct host/port in daemon.json", async () => {
-    const child = spawn(TSX, [DAEMON_ENTRY, "--cdp-port", String(cdpPort), "--host", "127.0.0.1", "--port", "39996"], {
+    const child = spawn(TSX, [DAEMON_ENTRY, "--no-chrome", "--cdp-port", String(cdpPort), "--host", "127.0.0.1", "--port", "39996"], {
       detached: true,
       stdio: "ignore",
     });
@@ -213,7 +209,7 @@ describe("daemon startup with CDP available", () => {
   });
 
   it("daemon HTTP /status responds when CDP is connected", async () => {
-    const child = spawn(TSX, [DAEMON_ENTRY, "--cdp-port", String(cdpPort), "--port", "39995"], {
+    const child = spawn(TSX, [DAEMON_ENTRY, "--no-chrome", "--cdp-port", String(cdpPort), "--port", "39995"], {
       detached: true,
       stdio: "ignore",
     });
@@ -270,13 +266,13 @@ describe("ensureDaemon passes CDP info to daemon", () => {
   });
 
   afterEach(async () => {
-    cleanupDaemonJson();
-    cleanupManagedPortFile();
     // Kill any daemon we spawned
     const info = readDaemonJson();
     if (info && isProcessAlive(info.pid)) {
       killProcess(info.pid);
     }
+    cleanupDaemonJson();
+    cleanupManagedPortFile();
     if (fakeCdp) {
       await new Promise<void>(resolve => fakeCdp!.close(() => resolve()));
       fakeCdp = null;
@@ -285,7 +281,7 @@ describe("ensureDaemon passes CDP info to daemon", () => {
 
   it("daemon discovers CDP via managed port file", async () => {
     // Daemon should read ~/.bb-browser/browser/cdp-port and find our fake CDP
-    const child = spawn(TSX, [DAEMON_ENTRY, "--port", "39993"], {
+    const child = spawn(TSX, [DAEMON_ENTRY, "--no-chrome", "--port", "39993"], {
       detached: true,
       stdio: "ignore",
     });
@@ -296,57 +292,6 @@ describe("ensureDaemon passes CDP info to daemon", () => {
 
     // Cleanup
     killProcess(info.pid);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Test: The core bug — daemon spawned without CDP info
-// ---------------------------------------------------------------------------
-
-describe("core bug: daemon spawned without --cdp-port fails silently (#136)", () => {
-  beforeEach(() => {
-    cleanupDaemonJson();
-    cleanupManagedPortFile();
-  });
-
-  afterEach(() => {
-    cleanupDaemonJson();
-  });
-
-  it("daemon with default port 9222 and nothing listening → exits, no daemon.json", async () => {
-    // This is exactly what ensureDaemon() does: spawn daemon with NO args
-    // Default --cdp-port is 9222, nothing listening there → daemon exits
-    const child = spawn(TSX, [DAEMON_ENTRY], {
-      detached: true,
-      stdio: "ignore",
-      env: { ...process.env, BB_BROWSER_CDP_URL: undefined },
-    });
-    child.unref();
-
-    // daemon should exit within 3 seconds, daemon.json never appears
-    await new Promise(r => setTimeout(r, 3000));
-    assert.equal(readDaemonJson(), null,
-      "BUG CONFIRMED: daemon exits without daemon.json when spawned with no args and no Chrome on default port");
-  });
-
-  it("daemon with explicit --cdp-port pointing to fake CDP → starts successfully", async () => {
-    // This proves the fix: if CLI passes --cdp-port to daemon, it works
-    const cdpPort = 39992;
-    const fakeCdp = await startFakeCdpServer(cdpPort);
-
-    try {
-      const child = spawn(TSX, [DAEMON_ENTRY, "--cdp-port", String(cdpPort), "--port", "39991"], {
-        detached: true,
-        stdio: "ignore",
-      });
-      child.unref();
-
-      const info = await waitForDaemonJson();
-      assert.ok(isProcessAlive(info.pid), "daemon should be running when given correct CDP port");
-      killProcess(info.pid);
-    } finally {
-      await new Promise<void>(resolve => fakeCdp.close(() => resolve()));
-    }
   });
 });
 
@@ -372,7 +317,7 @@ describe("CDP 503 error includes diagnostics", () => {
     const fakeCdp = await startFakeCdpServer(cdpPort);
 
     try {
-      const child = spawn(TSX, [DAEMON_ENTRY, "--cdp-port", String(cdpPort), "--port", String(daemonPort)], {
+      const child = spawn(TSX, [DAEMON_ENTRY, "--no-chrome", "--cdp-port", String(cdpPort), "--port", String(daemonPort)], {
         detached: true,
         stdio: "ignore",
       });

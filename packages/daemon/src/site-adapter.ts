@@ -219,6 +219,7 @@ export async function executeSiteAdapter(
     // User specified a tab — resolve it
     const target = await cdp.ensurePageTarget(
       typeof tabId === "number" ? String(tabId) : tabId,
+      { activate: true },
     );
     targetId = target.id;
     shortId = cdp.tabManager.getTab(target.id)?.shortId;
