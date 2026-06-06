@@ -1,0 +1,193 @@
+/* BindingsPage */
+.root {
+  padding: 16px;
+  overflow-y: auto;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ── Card ── */
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.cardTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.cardCount {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.ts {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.activePill {
+  background: rgba(63, 185, 80, 0.18);
+  color: var(--status-green);
+  border-radius: 10px;
+  padding: 1px 6px;
+  font-size: 10px;
+}
+
+.ghostPill {
+  background: rgba(210, 153, 34, 0.18);
+  color: var(--status-yellow);
+  border-radius: 10px;
+  padding: 1px 6px;
+  font-size: 10px;
+}
+
+.empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* ── Binding list ── */
+.bindingList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bindingCard {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.bindingLive {
+  border-color: rgba(63, 185, 80, 0.25);
+  background: rgba(63, 185, 80, 0.04);
+}
+
+.bindingGhost {
+  border-color: rgba(210, 153, 34, 0.20);
+  background: rgba(210, 153, 34, 0.03);
+  opacity: 0.85;
+}
+
+/* ── Binding header row ── */
+.bindingHeader {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+}
+
+.agentId {
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 11px;
+  color: var(--accent);
+  background: rgba(79, 163, 224, 0.12);
+  border-radius: 4px;
+  padding: 1px 6px;
+  flex-shrink: 0;
+}
+
+.statusLabel {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.timePair {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-muted);
+  display: flex;
+  gap: 4px;
+}
+
+/* ── Field rows ── */
+.bindingRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.fieldLabel {
+  width: 32px;
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.url {
+  color: var(--accent);
+  text-decoration: none;
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 11px;
+  word-break: break-all;
+}
+.url:hover { text-decoration: underline; }
+
+.intentText {
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.progressText {
+  color: var(--text-secondary);
+  line-height: 1.4;
+  font-style: italic;
+}
+
+/* ── Status dots ── */
+.dotActive {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-green);
+  flex-shrink: 0;
+}
+
+.dotGhost {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-yellow);
+  flex-shrink: 0;
+}
+
+/* ── Legend ── */
+.legend {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.6;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}

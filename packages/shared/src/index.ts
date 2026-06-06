@@ -43,4 +43,16 @@ export {
   readDaemonJson,
   isProcessAlive,
   httpJson,
+  isWsl,
+  parseDefaultGatewayHex,
+  parseNameserver,
 } from "./daemon-client.js";
+
+export {
+  DEFAULT_CDP_PORT,
+  MANAGED_BROWSER_DIR,
+  MANAGED_PORT_FILE,
+  findBrowserExecutable,
+  launchManagedBrowser,
+  probeCdp,
+} from "./browser-launcher.js";

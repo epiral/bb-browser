@@ -12,6 +12,7 @@ import WebSocket from "ws";
 import type { TraceEvent } from "@bb-browser/shared";
 import { TabStateManager } from "./tab-state.js";
 import { TRACE_INJECTION_SCRIPT, TRACE_PREFIX } from "./trace-inject.js";
+import type { AgentSession } from "./session-state.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -87,13 +88,12 @@ export class CdpConnection {
   private sessions = new Map<string, string>();
   /** sessionId -> targetId */
   private attachedTargets = new Map<string, string>();
+  /** Per-target serial queue: commands on the same tab run one at a time. */
+  private tabQueues = new Map<string, Promise<void>>();
 
-  readonly host: string;
-  readonly port: number;
+  host: string;
+  port: number;
   readonly tabManager: TabStateManager;
-
-  /** Current (most recently selected) target ID. */
-  currentTargetId: string | undefined;
 
   private connectionPromise: Promise<void> | null = null;
   private _connected = false;
@@ -101,8 +101,22 @@ export class CdpConnection {
   /** Last connection error (for diagnostics in 503 responses). */
   lastError: string | null = null;
 
+  /** Chrome version string extracted from /json/version (e.g. "130.0.6723.116"). */
+  chromeVersion: string | null = null;
+
   /** Resolvers for commands queued before CDP is ready. */
   private readyWaiters: Array<{ resolve: () => void; reject: (err: Error) => void }> = [];
+
+  /**
+   * Invoked when an established WebSocket drops unexpectedly (e.g. the user
+   * closed Chrome). The owner (index.ts) wires this to restart the CDP
+   * bring-up loop so the daemon self-heals. Not called on an intentional
+   * `disconnect()`.
+   */
+  onUnexpectedClose: (() => void) | null = null;
+
+  /** True once `disconnect()` was called, to suppress reconnect on shutdown. */
+  private intentionallyClosed = false;
 
   constructor(host: string, port: number, tabManager: TabStateManager) {
     this.host = host;
@@ -112,6 +126,17 @@ export class CdpConnection {
 
   get connected(): boolean {
     return this._connected && this.socket !== null && this.socket.readyState === WebSocket.OPEN;
+  }
+
+  /**
+   * Re-point this connection at a new endpoint before a (re)connect attempt.
+   * Only valid while disconnected — the background bring-up loop uses this
+   * when discovery resolves a different host/port (e.g. a managed browser
+   * that came up on a fallback port).
+   */
+  repoint(host: string, port: number): void {
+    this.host = host;
+    this.port = port;
   }
 
   // ---------------------------------------------------------------------------
@@ -126,6 +151,9 @@ export class CdpConnection {
     if (this._connected) return;
     if (this.connectionPromise) return this.connectionPromise;
 
+    // A fresh connect attempt clears the intentional-close guard so a later
+    // unexpected drop will trigger self-heal again.
+    this.intentionallyClosed = false;
     this.connectionPromise = this.doConnect();
     try {
       await this.connectionPromise;
@@ -150,6 +178,13 @@ export class CdpConnection {
     const wsUrl = versionData.webSocketDebuggerUrl;
     if (typeof wsUrl !== "string" || !wsUrl) {
       throw new Error("CDP endpoint missing webSocketDebuggerUrl");
+    }
+
+    // Extract Chrome version from "Chrome/130.0.6723.116" Browser string.
+    const browser = versionData.Browser ?? versionData.browser;
+    if (typeof browser === "string") {
+      const m = /Chrome\/([\d.]+)/.exec(browser);
+      if (m) this.chromeVersion = m[1];
     }
 
     const ws = await connectWebSocket(wsUrl);
@@ -186,6 +221,8 @@ export class CdpConnection {
 
   /** Gracefully close the CDP connection. */
   disconnect(): void {
+    // Mark intentional so the ws "close" handler does not trigger self-heal.
+    this.intentionallyClosed = true;
     if (this.socket) {
       try {
         this.socket.close();
@@ -253,9 +290,6 @@ export class CdpConnection {
             this.sessions.delete(targetId);
             this.attachedTargets.delete(sessionId);
             this.tabManager.removeTab(targetId);
-            if (this.currentTargetId === targetId) {
-              this.currentTargetId = undefined;
-            }
           }
         }
         return;
@@ -281,9 +315,6 @@ export class CdpConnection {
             this.attachedTargets.delete(sessionId);
           }
           this.tabManager.removeTab(targetId);
-          if (this.currentTargetId === targetId) {
-            this.currentTargetId = undefined;
-          }
         }
         return;
       }
@@ -311,6 +342,17 @@ export class CdpConnection {
         waiter.reject(closeErr);
       }
       this.readyWaiters = [];
+
+      // Reset per-connection target/session state so a reconnect starts clean.
+      this.sessions.clear();
+      this.attachedTargets.clear();
+
+      // Self-heal: unless we closed on purpose (shutdown), ask the owner to
+      // restart the CDP bring-up loop. This re-discovers/relaunches Chrome,
+      // so the tray returns to green after the browser is reopened.
+      if (!this.intentionallyClosed && this.onUnexpectedClose) {
+        this.onUnexpectedClose();
+      }
     });
 
     ws.on("error", () => {});
@@ -570,9 +612,13 @@ export class CdpConnection {
    *   - short ID string
    *   - full target ID string
    *   - numeric index
-   *   - undefined (use currentTargetId or first page)
+   *   - undefined (use session.currentTargetId or first page)
+   *
+   * When `session` is provided, the resolved target is recorded back into
+   * session.currentTargetId so each caller maintains its own "current tab"
+   * without affecting other concurrent callers.
    */
-  async ensurePageTarget(tabRef?: string | number): Promise<CdpTargetInfo> {
+  async ensurePageTarget(tabRef?: string | number, session?: AgentSession): Promise<CdpTargetInfo> {
     const targets = (await this.getTargets()).filter((t) => t.type === "page");
     if (targets.length === 0) throw new Error("No page target found");
 
@@ -597,8 +643,8 @@ export class CdpConnection {
       }
     } else if (typeof tabRef === "number") {
       target = targets[tabRef];
-    } else if (this.currentTargetId) {
-      target = targets.find((t) => t.id === this.currentTargetId);
+    } else if (session?.currentTargetId) {
+      target = targets.find((t) => t.id === session.currentTargetId);
     }
 
     if (typeof tabRef === "string" && !target) {
@@ -606,7 +652,7 @@ export class CdpConnection {
     }
 
     target ??= targets[0];
-    this.currentTargetId = target.id;
+    if (session) session.currentTargetId = target.id;
     await this.attachAndEnable(target.id);
     return target;
   }
@@ -683,6 +729,26 @@ export class CdpConnection {
       method,
       frameId ? { ...params, frameId } : params,
     );
+  }
+
+  /**
+   * Run `fn` on the given tab serially. Concurrent calls for the same targetId
+   * are queued; calls for different tabs run in parallel.
+   *
+   * The queue always advances even if a previous item errored, so a single
+   * failing command never blocks the tab permanently.
+   */
+  runOnTab<T>(targetId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.tabQueues.get(targetId) ?? Promise.resolve();
+    const result = prev.then(() => fn(), () => fn());
+    const tail = result.then(() => {}, () => {});
+    this.tabQueues.set(targetId, tail);
+    tail.then(() => {
+      if (this.tabQueues.get(targetId) === tail) {
+        this.tabQueues.delete(targetId);
+      }
+    });
+    return result;
   }
 
   /** Inject trace event listeners into a page (start recording). */

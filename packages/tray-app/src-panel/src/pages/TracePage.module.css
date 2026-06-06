@@ -1,0 +1,78 @@
+/* TracePage layout */
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Banner ── */
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.banner[data-status="success"] { background: rgba(63,185,80,0.12); color: #3fb950; }
+.banner[data-status="warning"] { background: rgba(210,153,34,0.14); color: #d29922; }
+
+/* ── Body ── */
+.body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.controls {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-light);
+  flex-shrink: 0;
+}
+
+.timeline {
+  flex: 1;
+  overflow: auto;
+}
+
+/* ── Recording indicator ── */
+.recordingIndicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(248, 81, 73, 0.1);
+  border-bottom: 1px solid rgba(248,81,73,0.2);
+  font-size: 12px;
+  color: #f85149;
+}
+.recDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f85149;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.recNote { color: var(--text-muted); margin-left: auto; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}

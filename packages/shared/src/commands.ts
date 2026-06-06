@@ -307,6 +307,45 @@ export const COMMANDS: CommandDef[] = [
       index: z.number().optional().describe("Tab index (0-based, used if tab is not specified)"),
     }),
   },
+  {
+    name: "tab_claim",
+    action: "tab_claim",
+    description: "Claim a tab for this session. Use exclusive mode to prevent other agents from using it. Provide intent to persist a task anchor that survives browser restarts.",
+    category: "tab",
+    args: z.object({
+      tab: z.string().optional().describe("Tab short ID (defaults to current tab)"),
+      leaseMode: z.enum(["shared", "exclusive"]).default("exclusive").describe("shared: others can still use the tab; exclusive: only this session may use it"),
+      intent: z.string().optional().describe("Task intent description — persisted to disk so the agent can resume after a browser restart"),
+    }),
+  },
+  {
+    name: "tab_release",
+    action: "tab_release",
+    description: "Release a previously claimed tab, making it available to other sessions",
+    category: "tab",
+    args: z.object({
+      tab: z.string().optional().describe("Tab short ID (defaults to current tab)"),
+    }),
+  },
+  {
+    name: "task_update",
+    action: "task_update",
+    description: "Update the progress note on a claimed tab's persistent task anchor. The tab must have been claimed with an intent.",
+    category: "tab",
+    args: z.object({
+      tab: z.string().optional().describe("Tab short ID (defaults to current tab)"),
+      progress: z.string().describe("Free-text progress note, e.g. 'Filled login form, waiting for OTP'"),
+    }),
+  },
+  {
+    name: "resume",
+    action: "resume",
+    description: "Retrieve this agent's persistent context: active tab bindings (with anchorUrl/intent/progress) and recent activity journal. Call this on connect to resume unfinished tasks across browser restarts.",
+    category: "tab",
+    args: z.object({
+      limit: z.number().optional().describe("Max journal entries to return (default 50)"),
+    }),
+  },
 
   // ---------------------------------------------------------------------------
   // Network / observation

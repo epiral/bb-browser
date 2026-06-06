@@ -59,10 +59,14 @@ export function getDaemonPath(): string {
  */
 export async function ensureDaemon(): Promise<void> {
   if (daemonReady && cachedInfo) {
-    // Quick re-check: is it still alive and CDP connected?
+    // Quick re-check: is the HTTP server still reachable?
+    // We no longer gate on cdpConnected — the daemon may be in a connecting
+    // state (cdpConnected=false / yellow) while the browser starts up or
+    // recovers. The command handler already queues commands via
+    // `cdp.waitUntilReady()`, so we must not kill and re-spawn in this state.
     try {
-      const status = await httpJson<{ running?: boolean; cdpConnected?: boolean }>("GET", "/status", cachedInfo, undefined, 2000);
-      if (status.running && status.cdpConnected !== false) {
+      const status = await httpJson<{ running?: boolean }>("GET", "/status", cachedInfo, undefined, 2000);
+      if (status.running) {
         return;
       }
     } catch {}
@@ -79,19 +83,19 @@ export async function ensureDaemon(): Promise<void> {
       info = null;
     } else {
       try {
-        const status = await httpJson<{ running?: boolean; cdpConnected?: boolean }>("GET", "/status", info, undefined, 2000);
-        if (status.running && status.cdpConnected !== false) {
+        const status = await httpJson<{ running?: boolean }>("GET", "/status", info, undefined, 2000);
+        if (status.running) {
+          // Accept the daemon whether or not CDP is connected yet.
+          // cdpConnected=false is a transient state managed by the tray or
+          // the daemon's own reconnect loop — killing it here would race with
+          // the tray's supervisor and potentially create two daemon instances.
           cachedInfo = info;
           daemonReady = true;
           return;
         }
-        if (status.running && status.cdpConnected === false) {
-          await stopDaemon();
-          await deleteDaemonJson();
-          info = null;
-        }
+        // Daemon HTTP is reachable but not reporting running — fall through to spawn.
       } catch {
-        // Daemon process exists but HTTP not responding — fall through to spawn
+        // Daemon process exists but HTTP not responding — fall through to spawn.
       }
     }
   }
@@ -108,12 +112,15 @@ export async function ensureDaemon(): Promise<void> {
     );
   }
 
-  // Spawn daemon process with discovered CDP endpoint
+  // Spawn daemon process with discovered CDP endpoint.
+  // Suppress the console window on Windows (the MCP server is windowless).
   const daemonPath = getDaemonPath();
-  const child = spawn(process.execPath, [daemonPath, "--cdp-host", cdpInfo.host, "--cdp-port", String(cdpInfo.port)], {
+  const spawnOpts: Parameters<typeof spawn>[2] = {
     detached: true,
     stdio: "ignore",
-  });
+    windowsHide: true,
+  };
+  const child = spawn(process.execPath, [daemonPath, "--cdp-host", cdpInfo.host, "--cdp-port", String(cdpInfo.port)], spawnOpts);
   child.unref();
 
   // Wait for daemon to become healthy (up to 10 seconds — includes Chrome launch time)

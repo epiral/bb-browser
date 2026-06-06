@@ -17,6 +17,7 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "clean": "rm -rf dist",
+    "test": "tsx --test src/__tests__/*.test.ts",
     "lint": "eslint src tsup.config.ts"
   },
   "devDependencies": {

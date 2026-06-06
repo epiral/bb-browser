@@ -1,0 +1,77 @@
+/* ── Reset ──────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { width: 100%; height: 100%; overflow: hidden; }
+
+/* ── Design tokens ─────────────────────────────────────────── */
+:root {
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-size-sm:  11px;
+  --font-size-md:  12px;
+  --font-size-lg:  13px;
+  --font-size-xl:  14px;
+
+  --radius-sm:  4px;
+  --radius-md:  6px;
+  --radius-lg:  8px;
+
+  --sp-1:  4px;
+  --sp-2:  8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+
+  /* Acrylic fallback colors (system transparency off / Win10 <1903) */
+  --bg-base:    rgba(24, 24, 26, 0.88);
+  --bg-surface: rgba(38, 38, 40, 0.90);
+  --bg-hover:   rgba(255, 255, 255, 0.07);
+  --bg-active:  rgba(255, 255, 255, 0.13);
+
+  --text-primary:   #e8e8e8;
+  --text-secondary: #999;
+  --text-muted:     #555;
+
+  --border:       rgba(255, 255, 255, 0.07);
+  --border-light: rgba(255, 255, 255, 0.04);
+
+  --accent:       #4fa3e0;
+  --accent-hover: #67b5f0;
+
+  --status-green:  #3fb950;
+  --status-yellow: #d29922;
+  --status-red:    #f85149;
+}
+
+/* ── Body ───────────────────────────────────────────────────── */
+body {
+  font-family: var(--font);
+  font-size: var(--font-size-lg);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  /* Acrylic makes the actual bg transparent; the CSS color is the fallback */
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Scrollbars ─────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
+
+/* ── Typography utilities ───────────────────────────────────── */
+.text-sm  { font-size: var(--font-size-sm); }
+.text-md  { font-size: var(--font-size-md); }
+.text-lg  { font-size: var(--font-size-lg); }
+.text-secondary { color: var(--text-secondary); }
+.text-muted     { color: var(--text-muted); }
+.mono { font-family: "Cascadia Code", "Fira Code", "Consolas", monospace; }
+
+/* ── Button base ────────────────────────────────────────────── */
+button {
+  font-family: var(--font);
+  cursor: pointer;
+  border: none;
+  outline: none;
+  transition: background 0.12s, color 0.12s;
+}
+button:disabled { opacity: 0.4; cursor: default; }

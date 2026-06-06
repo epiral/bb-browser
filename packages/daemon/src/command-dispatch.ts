@@ -19,6 +19,14 @@ import type {
 } from "@bb-browser/shared";
 import { CdpConnection, type CdpTargetInfo } from "./cdp-connection.js";
 import type { TabState } from "./tab-state.js";
+import type { AgentSession } from "./session-state.js";
+import type { BindingStore } from "./binding-store.js";
+import type { ScratchpadManager } from "./scratchpad-manager.js";
+
+export interface DispatchContext {
+  bindingStore?: BindingStore;
+  scratchpadManager?: ScratchpadManager;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -503,10 +511,46 @@ async function getAttributeValue(
  * Dispatch a command request. This is the core function that handles all
  * browser automation commands via CDP.
  */
+// ---------------------------------------------------------------------------
+// Scope enforcement
+// ---------------------------------------------------------------------------
+
+/** Commands allowed in read-only scope (observe-only, no browser side effects). */
+const READ_ONLY_ALLOWED = new Set([
+  "snapshot", "get", "screenshot",
+  "network", "console", "errors",
+  "tab_list",
+  "history",
+  "wait",
+]);
+
+/** Returns true if the request involves running JavaScript via Runtime.evaluate. */
+function isEvalLike(request: Request): boolean {
+  return (
+    request.action === "eval" ||
+    (request.action === "trace" && request.traceCommand === "start")
+  );
+}
+
 export async function dispatchRequest(
   cdp: CdpConnection,
   request: Request,
+  session?: AgentSession,
+  ctx?: DispatchContext,
 ): Promise<Response> {
+  const bindingStore = ctx?.bindingStore;
+  const scratchpadManager = ctx?.scratchpadManager;
+  // Scope enforcement — fast-fail before any CDP work.
+  if (session?.scope === "read-only") {
+    if (!READ_ONLY_ALLOWED.has(request.action)) {
+      return fail(request.id, `Action '${request.action}' is not allowed in read-only scope`);
+    }
+  } else if (session?.scope === "no-eval") {
+    if (isEvalLike(request)) {
+      return fail(request.id, `Action '${request.action}' requires eval permission (session scope: no-eval)`);
+    }
+  }
+
   // Resolve target from request.tabId (supports short IDs)
   const tabRef = request.tabId;
 
@@ -517,13 +561,17 @@ export async function dispatchRequest(
     const targets = (await cdp.getTargets()).filter((t) => t.type === "page");
     const tabs = targets.map((t, index) => {
       const tState = cdp.tabManager.getTab(t.id);
+      const recentActivity = tState ? scratchpadManager?.getRecent(tState.bbTabId) : undefined;
       return {
         index,
         url: t.url,
         title: t.title,
-        active: t.id === cdp.currentTargetId || (!cdp.currentTargetId && index === 0),
+        active: t.id === session?.currentTargetId || (!session?.currentTargetId && index === 0),
         tabId: t.id,
         tab: tState?.shortId ?? t.id.slice(-4).toLowerCase(),
+        owner: tState?.leaseOwner,
+        lease: tState?.leaseMode === "exclusive" ? "exclusive" : undefined,
+        ...(recentActivity ? { recentActivity } : {}),
       };
     });
     return ok(request.id, {
@@ -550,9 +598,23 @@ export async function dispatchRequest(
 
   const target = await cdp.ensurePageTarget(
     tabRef !== undefined ? String(tabRef) : undefined,
+    session,
   );
+
+  return cdp.runOnTab(target.id, async () => {
   const tab = cdp.tabManager.getTab(target.id);
   if (!tab) throw new Error("Internal error: tab state not found");
+
+  // Exclusive lease enforcement: block non-owners from operating on claimed tabs.
+  // tab_release is exempt so the owner can always release.
+  if (
+    request.action !== "tab_release" &&
+    tab.leaseMode === "exclusive" &&
+    tab.leaseOwner &&
+    tab.leaseOwner !== session?.id
+  ) {
+    return fail(request.id, `Tab ${tab.shortId} is exclusively held by another session`);
+  }
 
   const shortId = tab.shortId;
 
@@ -569,7 +631,7 @@ export async function dispatchRequest(
           "Target.createTarget",
           { url: request.url, background: true },
         );
-        const newTarget = await cdp.ensurePageTarget(created.targetId);
+        const newTarget = await cdp.ensurePageTarget(created.targetId, session);
         const newTab = cdp.tabManager.getTab(newTarget.id);
         return ok(request.id, {
           url: request.url,
@@ -619,11 +681,13 @@ export async function dispatchRequest(
     // -----------------------------------------------------------------------
     case "snapshot": {
       const snapshotData = await buildSnapshot(cdp, target.id, tab, request);
+      const recentActivity = scratchpadManager?.getRecent(tab.bbTabId) ?? undefined;
       return ok(request.id, {
         title: target.title,
         url: target.url,
         snapshotData,
         tab: shortId,
+        ...(recentActivity ? { recentActivity } : {}),
       });
     }
 
@@ -840,7 +904,7 @@ export async function dispatchRequest(
       }
 
       if (!selected) return fail(request.id, "Tab not found");
-      cdp.currentTargetId = selected.id;
+      if (session) session.currentTargetId = selected.id;
       await cdp.attachAndEnable(selected.id);
       const selTab = cdp.tabManager.getTab(selected.id);
       return ok(request.id, {
@@ -878,13 +942,50 @@ export async function dispatchRequest(
       const closedTab = cdp.tabManager.getTab(selected.id);
       const closedShort = closedTab?.shortId;
       await cdp.browserCommand("Target.closeTarget", { targetId: selected.id });
-      if (cdp.currentTargetId === selected.id) {
-        cdp.currentTargetId = undefined;
+      if (session?.currentTargetId === selected.id) {
+        session.currentTargetId = undefined;
       }
       return ok(request.id, {
         tabId: selected.id,
         tab: closedShort,
       });
+    }
+
+    // -----------------------------------------------------------------------
+    // Tab lease
+    // -----------------------------------------------------------------------
+    case "tab_claim": {
+      tab.leaseOwner = session?.id;
+      tab.leaseMode = (request.leaseMode ?? "exclusive") as "shared" | "exclusive";
+      if (request.intent && session?.agentId && bindingStore) {
+        bindingStore.upsert({
+          bbTabId: tab.bbTabId,
+          agentId: session.agentId,
+          anchorUrl: target.url,
+          intent: request.intent,
+          claimedAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      }
+      return ok(request.id, { tab: shortId, lease: tab.leaseMode, owner: tab.leaseOwner, bbTabId: tab.bbTabId });
+    }
+
+    case "tab_release": {
+      if (tab.leaseOwner && tab.leaseOwner !== session?.id) {
+        return fail(request.id, `Tab ${shortId} is not claimed by this session`);
+      }
+      tab.leaseOwner = undefined;
+      tab.leaseMode = "shared";
+      bindingStore?.remove(tab.bbTabId);
+      return ok(request.id, { tab: shortId, released: true });
+    }
+
+    case "task_update": {
+      if (!request.progress) return fail(request.id, "Missing progress parameter");
+      if (!bindingStore) return fail(request.id, "Binding store not available");
+      const updated = bindingStore.updateProgress(tab.bbTabId, request.progress);
+      if (!updated) return fail(request.id, `Tab ${shortId} has no persistent binding — claim it with an intent first`);
+      return ok(request.id, { tab: shortId, bbTabId: tab.bbTabId, progress: request.progress });
     }
 
     // -----------------------------------------------------------------------
@@ -1123,4 +1224,5 @@ export async function dispatchRequest(
     default:
       return fail(request.id, `Unknown action: ${request.action}`);
   }
+  }); // end runOnTab
 }

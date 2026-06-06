@@ -22,7 +22,7 @@ import { discoverCdpPort } from "./cdp-discovery.js";
 // Paths
 // ---------------------------------------------------------------------------
 
-const MONITOR_DIR = path.join(os.homedir(), ".bb-browser");
+const MONITOR_DIR = process.env.BB_BROWSER_HOME || path.join(os.homedir(), ".bb-browser");
 const PID_FILE = path.join(MONITOR_DIR, "monitor.pid");
 const PORT_FILE = path.join(MONITOR_DIR, "monitor.port");
 const TOKEN_FILE = path.join(MONITOR_DIR, "monitor.token");

@@ -22,7 +22,7 @@ import { join, relative } from "node:path";
 import { homedir } from "node:os";
 import { execSync } from "node:child_process";
 
-const BB_DIR = join(homedir(), ".bb-browser");
+const BB_DIR = process.env.BB_BROWSER_HOME || join(homedir(), ".bb-browser");
 const LOCAL_SITES_DIR = join(BB_DIR, "sites");
 const COMMUNITY_SITES_DIR = join(BB_DIR, "bb-sites");
 const COMMUNITY_REPO = "https://github.com/epiral/bb-sites.git";

@@ -1,18 +1,14 @@
-import { execFile, execSync, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { MANAGED_PORT_FILE, launchManagedBrowser } from "@bb-browser/shared";
 import { parseOpenClawJson } from "./openclaw-json.js";
 
-const DEFAULT_CDP_PORT = 19825;
-const LOCAL_CHROME_USER_DATA_DIR = path.join(
-  process.env.LOCALAPPDATA ?? path.join(os.homedir(), "AppData", "Local"),
-  "360ChromeX", "Chrome", "User Data",
-);
-const MANAGED_BROWSER_DIR = path.join(os.homedir(), ".bb-browser", "browser");
-const MANAGED_USER_DATA_DIR = LOCAL_CHROME_USER_DATA_DIR;
-const MANAGED_PORT_FILE = path.join(MANAGED_BROWSER_DIR, "cdp-port");
+// Browser-launch helpers live in @bb-browser/shared so the daemon can reuse
+// them. Re-export findBrowserExecutable to preserve this module's public API.
+export { findBrowserExecutable } from "@bb-browser/shared";
+
 const CDP_CACHE_FILE = path.join(os.tmpdir(), "bb-browser-cdp-cache.json");
 const CACHE_TTL_MS = 30000; // 缓存有效期 30 秒
 
@@ -88,59 +84,6 @@ async function canConnect(host: string, port: number): Promise<boolean> {
   }
 }
 
-export function findBrowserExecutable(): string | null {
-  if (process.platform === "darwin") {
-    const candidates = [
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-      "/Applications/Google Chrome Dev.app/Contents/MacOS/Google Chrome Dev",
-      "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
-      "/Applications/Google Chrome Beta.app/Contents/MacOS/Google Chrome Beta",
-      "/Applications/Arc.app/Contents/MacOS/Arc",
-      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-      "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-    ];
-    return candidates.find((candidate) => existsSync(candidate)) ?? null;
-  }
-
-  if (process.platform === "linux") {
-    const candidates = ["google-chrome", "google-chrome-stable", "chromium-browser", "chromium"];
-    for (const candidate of candidates) {
-      try {
-        const resolved = execSync(`which ${candidate}`, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-        if (resolved) {
-          return resolved;
-        }
-      } catch {
-      }
-    }
-    return null;
-  }
-
-  if (process.platform === "win32") {
-    const localAppData = process.env.LOCALAPPDATA ?? "";
-    const candidates = [
-      // 360ChromeX
-      ...(localAppData ? [
-        `${localAppData}/360ChromeX/Chrome/Application/360ChromeX.exe`,
-      ] : []),
-      // Google Chrome
-      "C:/Program Files/Google/Chrome/Application/chrome.exe",
-      "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
-      ...(localAppData ? [
-        `${localAppData}/Google/Chrome Dev/Application/chrome.exe`,
-        `${localAppData}/Google/Chrome SxS/Application/chrome.exe`,
-        `${localAppData}/Google/Chrome Beta/Application/chrome.exe`,
-      ] : []),
-      "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
-      "C:/Program Files/Microsoft/Edge/Application/msedge.exe",
-      "C:/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe",
-    ];
-    return candidates.find((candidate) => existsSync(candidate)) ?? null;
-  }
-
-  return null;
-}
-
 export async function isManagedBrowserRunning(): Promise<boolean> {
   try {
     const rawPort = await readFile(MANAGED_PORT_FILE, "utf8");
@@ -152,55 +95,6 @@ export async function isManagedBrowserRunning(): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-export async function launchManagedBrowser(port: number = DEFAULT_CDP_PORT): Promise<{ host: string; port: number } | null> {
-  const executable = findBrowserExecutable();
-  if (!executable) {
-    return null;
-  }
-
-  await mkdir(MANAGED_USER_DATA_DIR, { recursive: true });
-
-  // 使用本机 Chrome profile，不移除 Preferences
-
-  const args = [
-    `--remote-debugging-port=${port}`,
-    `--user-data-dir=${MANAGED_USER_DATA_DIR}`,
-    "--no-first-run",
-    "--no-default-browser-check",
-    "--disable-sync",
-    "--disable-background-networking",
-    "--disable-component-update",
-    "--disable-features=Translate,MediaRouter",
-    "--disable-session-crashed-bubble",
-    "--hide-crash-restore-bubble",
-    "--use-mock-keychain",
-    "about:blank",
-  ];
-
-  try {
-    const child = spawn(executable, args, {
-      detached: true,
-      stdio: "ignore",
-    });
-    child.unref();
-  } catch {
-    return null;
-  }
-
-  await mkdir(MANAGED_BROWSER_DIR, { recursive: true });
-  await writeFile(MANAGED_PORT_FILE, String(port), "utf8");
-
-  const deadline = Date.now() + 8000;
-  while (Date.now() < deadline) {
-    if (await canConnect("127.0.0.1", port)) {
-      return { host: "127.0.0.1", port };
-    }
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-
-  return null;
 }
 
 export async function discoverCdpPort(): Promise<{ host: string; port: number } | null> {

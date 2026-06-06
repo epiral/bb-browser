@@ -33,3 +33,6 @@ pnpm-debug.log*
 
 # Test coverage
 coverage/
+
+# Scratch / verification dumps
+temp_*.json

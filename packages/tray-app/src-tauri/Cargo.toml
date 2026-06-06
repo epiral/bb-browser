@@ -1,0 +1,85 @@
+[package]
+name = "bb-browser-tray"
+version = "0.0.1"
+description = "Windows system tray daemon UI for bb-browser"
+authors = ["epiral"]
+edition = "2021"
+rust-version = "1.80"
+
+# Library — contains all the testable, Tauri-free logic.
+[lib]
+name = "bb_browser_tray"
+path = "src/lib.rs"
+
+# Binary — thin wrapper that wires the library into the Tauri shell.
+[[bin]]
+name = "bb-browser-tray"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Tauri is only used by the binary entry point. Listed here because cargo
+# doesn't yet support per-target dependencies for the binary. The library
+# crate must not import any tauri::* items.
+[dependencies.tauri]
+version = "2.0"
+features = ["tray-icon", "image-png", "image-ico"]
+optional = true
+
+[dependencies.tauri-plugin-notification]
+version = "2.0"
+optional = true
+
+[dependencies.tauri-plugin-clipboard-manager]
+version = "2.0"
+optional = true
+
+[dependencies.tauri-plugin-opener]
+version = "2.0"
+optional = true
+
+[dependencies.tauri-plugin-dialog]
+version = "2.0"
+optional = true
+
+[dependencies.which]
+version = "7"
+optional = true
+
+# Windows registry access for autostart (HKCU\...\Run).
+# Always included on Windows (not optional) so the lib crate can use it
+# without requiring the tauri-app feature.
+[target.'cfg(windows)'.dependencies.winreg]
+version = "0.52"
+
+[features]
+default = []
+# Enable to build the actual Tauri binary. Tests don't need it.
+tauri-app = [
+    "dep:tauri",
+    "dep:tauri-build",
+    "dep:tauri-plugin-notification",
+    "dep:tauri-plugin-clipboard-manager",
+    "dep:tauri-plugin-opener",
+    "dep:tauri-plugin-dialog",
+    "dep:which",
+]
+
+[dev-dependencies]
+tempfile = "3"
+
+[build-dependencies]
+tauri-build = { version = "2.0", optional = true }
+
+[profile.dev]
+# Faster incremental builds for TDD.
+opt-level = 0
+debug = 1
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true

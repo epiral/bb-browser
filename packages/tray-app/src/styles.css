@@ -1,0 +1,405 @@
+/* bb-browser tray popup — Acrylic-style, three-section layout.
+   Per docs/system-tray-design.md §4.2 / §4.3.
+   On Win10 < 1903 the Acrylic falls back to a semi-opaque background — the
+   inner CSS rgba()s ensure we stay readable in both modes. */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  /* Match the popup background so WebView2's default white doesn't show
+     through the border-radius corners on Win10 transparent windows. */
+  background: #202020;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: #f0f0f0;
+  user-select: none;
+  -webkit-user-select: none;
+  overflow: hidden;
+  font-size: 12px;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  outline: none;
+}
+
+button:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 1px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.mono {
+  font-family: Consolas, "Cascadia Code", monospace;
+}
+
+/* ─── Popup container ────────────────────────────────────────── */
+
+.popup {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  /* Acrylic fallback color: semi-opaque dark gray. Win11 will overlay
+     with native Acrylic blur via Tauri's window effects. */
+  background: rgba(32, 32, 32, 0.88);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  /* CSS shadow replaces DWM shadow (shadow:false in tauri.conf.json).
+     DWM shadow on transparent Win10 windows creates a white frame artifact. */
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  animation: popup-in 180ms cubic-bezier(0.215, 0.61, 0.355, 1);
+}
+
+@keyframes popup-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ─── Header ─────────────────────────────────────────────────── */
+
+.popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 48px;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  -webkit-app-region: drag;
+}
+
+.header-left,
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-right {
+  -webkit-app-region: no-drag;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #e63c3c;
+  flex-shrink: 0;
+  transition: background-color 150ms ease;
+}
+
+.status-dot.green {
+  background: #00c850;
+}
+.status-dot.yellow {
+  background: #f0b400;
+}
+.status-dot.red {
+  background: #e63c3c;
+}
+
+.status-text {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.7);
+  transition: background-color 100ms ease, color 100ms ease;
+}
+
+.icon-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+/* ─── Body ───────────────────────────────────────────────────── */
+
+.popup-body {
+  flex: 1;
+  padding: 12px 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.popup-body::-webkit-scrollbar {
+  width: 6px;
+}
+.popup-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+}
+
+.error-banner {
+  background: rgba(230, 60, 60, 0.18);
+  border: 1px solid rgba(230, 60, 60, 0.4);
+  color: #ffb3b3;
+  padding: 8px 12px;
+  border-radius: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.info-line {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 12px;
+}
+
+.divider {
+  border: none;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.section-title {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 4px;
+}
+
+.data-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.data-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.data-row .label {
+  width: 48px;
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.55);
+  padding-top: 4px;
+}
+
+.data-stack {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.data-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  transition: background-color 100ms ease;
+}
+
+.data-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.data-key {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+  min-width: 50px;
+}
+
+.data-value {
+  flex: 1;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.copy-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.08);
+  transition: background-color 100ms ease, color 100ms ease;
+}
+
+.copy-btn:hover {
+  background: rgba(99, 102, 241, 0.35);
+  color: #fff;
+}
+
+.copy-btn.copied {
+  background: rgba(0, 200, 80, 0.35);
+  color: #fff;
+}
+
+.recent-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recent-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.recent-list li {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.recent-list li:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.recent-list .recent-empty {
+  color: rgba(255, 255, 255, 0.4);
+  font-style: italic;
+}
+
+.recent-cmd {
+  color: rgba(255, 255, 255, 0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent-time {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 11px;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.link-btn {
+  color: #8b8eff;
+  font-size: 11px;
+  align-self: flex-start;
+  padding: 2px 0;
+}
+
+.link-btn:hover {
+  text-decoration: underline;
+}
+
+/* ─── Footer ─────────────────────────────────────────────────── */
+
+.popup-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 44px;
+  padding: 0 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  gap: 8px;
+}
+
+.footer-right {
+  display: flex;
+  gap: 6px;
+}
+
+.btn {
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #f0f0f0;
+  background: rgba(255, 255, 255, 0.08);
+  transition: background-color 100ms ease;
+}
+
+.btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.btn-secondary {
+  background: rgba(99, 102, 241, 0.5);
+}
+
+.btn-secondary:hover {
+  background: rgba(99, 102, 241, 0.7);
+}
+
+.btn-danger {
+  color: rgba(255, 180, 180, 1);
+}
+
+.btn-danger:hover {
+  background: rgba(230, 60, 60, 0.25);
+}
+
+/* ─── In-popup toast feedback ────────────────────────────────── */
+
+.toast-area {
+  position: fixed;
+  bottom: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.toast {
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 16px;
+  font-size: 12px;
+  white-space: nowrap;
+  animation: toast-in 200ms ease, toast-out 200ms ease 1500ms forwards;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}

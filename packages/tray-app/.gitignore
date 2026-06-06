@@ -1,0 +1,20 @@
+# Tauri
+src-tauri/target/
+
+# Node
+node_modules/
+dist/
+
+# Vite panel build output (regenerated from src-panel/)
+src/assets/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

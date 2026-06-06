@@ -1,0 +1,245 @@
+/* ActivityPage — 多 agent 实时审计 */
+.root {
+  padding: 16px;
+  overflow-y: auto;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── Card (shared visual language with OverviewPage) ── */
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.cardTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.cardCount {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.clearFilter {
+  margin-left: 10px;
+  background: rgba(255,255,255,0.07);
+  color: var(--text-secondary);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+.clearFilter:hover { background: var(--bg-active); color: var(--text-primary); }
+
+.empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 4px 0;
+}
+
+/* ── Scheduler stat strip ── */
+.statRow {
+  display: flex;
+  gap: 10px;
+}
+
+.stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  background: var(--bg-hover);
+  border-radius: var(--radius-sm);
+}
+
+.statValue {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: "Cascadia Code", "Consolas", monospace;
+}
+.statWarn { color: #ffa000; }
+
+.statLabel {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ── Session list ── */
+.sessionList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sessionRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  text-align: left;
+  width: 100%;
+  background: transparent;
+}
+.sessionRow:hover { background: var(--bg-hover); }
+.sessionRowSel { background: var(--bg-active); }
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-muted);
+}
+.dotActive { background: var(--status-green); }
+
+.sLabel {
+  font-family: "Cascadia Code", monospace;
+  font-size: 11px;
+  color: var(--text-primary);
+  min-width: 90px;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scope {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+.scopeRo {
+  background: rgba(231, 76, 60, 0.15);
+  color: #e74c3c;
+}
+.scopeNoeval {
+  background: rgba(52, 152, 219, 0.15);
+  color: #3498db;
+}
+
+.sTab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
+.sTabId {
+  font-family: "Cascadia Code", monospace;
+  font-size: 11px;
+  color: var(--accent);
+}
+.idle { color: var(--text-muted); font-style: italic; }
+
+.lease {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 160, 0, 0.15);
+  color: #ffa000;
+  flex-shrink: 0;
+}
+
+.sInflight {
+  font-size: 11px;
+  color: var(--status-green);
+  font-family: "Cascadia Code", monospace;
+  min-width: 32px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.sSeen {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  min-width: 56px;
+  text-align: right;
+}
+
+/* ── Command stream ── */
+.cmdList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.cmdRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+.cmdRow:hover { background: var(--bg-hover); }
+
+.cmdStatus {
+  font-size: 11px;
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.status_ok       { color: var(--status-green); }
+.status_error    { color: var(--status-red);   }
+.status_inflight { color: var(--text-muted);   }
+
+.cmdSession {
+  font-family: "Cascadia Code", monospace;
+  font-size: 10px;
+  color: var(--text-secondary);
+  min-width: 72px;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmdTool {
+  font-family: "Cascadia Code", monospace;
+  font-size: 11px;
+  color: var(--accent);
+  flex-shrink: 0;
+  min-width: 110px;
+}
+
+.cmdArgs {
+  flex: 1;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmdTime {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.cmdDuration {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
