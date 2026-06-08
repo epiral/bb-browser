@@ -295,6 +295,7 @@ export class CdpConnection {
 
   readonly host: string;
   readonly port: number;
+  readonly browserWebSocketUrl: string | undefined;
   readonly tabManager: TabStateManager;
 
   /** Current (most recently selected) target ID. */
@@ -309,9 +310,10 @@ export class CdpConnection {
   /** Resolvers for commands queued before CDP is ready. */
   private readyWaiters: Array<{ resolve: () => void; reject: (err: Error) => void }> = [];
 
-  constructor(host: string, port: number, tabManager: TabStateManager) {
+  constructor(host: string, port: number, tabManager: TabStateManager, browserWebSocketUrl?: string) {
     this.host = host;
     this.port = port;
+    this.browserWebSocketUrl = browserWebSocketUrl;
     this.tabManager = tabManager;
   }
 
@@ -349,10 +351,13 @@ export class CdpConnection {
   }
 
   private async doConnect(): Promise<void> {
-    const versionData = (await fetchJson(
-      `http://${this.host}:${this.port}/json/version`,
-    )) as JsonObject;
-    const wsUrl = versionData.webSocketDebuggerUrl;
+    let wsUrl = this.browserWebSocketUrl;
+    if (!wsUrl) {
+      const versionData = (await fetchJson(
+        `http://${this.host}:${this.port}/json/version`,
+      )) as JsonObject;
+      wsUrl = versionData.webSocketDebuggerUrl as string | undefined;
+    }
     if (typeof wsUrl !== "string" || !wsUrl) {
       throw new Error("CDP endpoint missing webSocketDebuggerUrl");
     }

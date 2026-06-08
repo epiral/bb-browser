@@ -32,6 +32,12 @@ const DAEMON_DIR = process.env.BB_BROWSER_HOME || path.join(os.homedir(), ".bb-b
 const DAEMON_JSON = path.join(DAEMON_DIR, "daemon.json");
 const DEFAULT_CDP_PORT = 9222;
 
+interface CdpEndpoint {
+  host: string;
+  port: number;
+  browserWebSocketUrl?: string;
+}
+
 // ---------------------------------------------------------------------------
 // CLI argument parsing
 // ---------------------------------------------------------------------------
@@ -41,6 +47,7 @@ interface DaemonOptions {
   port: number;
   cdpHost: string;
   cdpPort: number;
+  cdpWsUrl?: string;
   token: string;
   hubUrl?: string;
   hubToken?: string;
@@ -68,6 +75,10 @@ function parseOptions(): DaemonOptions {
       "cdp-port": {
         type: "string",
         default: String(DEFAULT_CDP_PORT),
+      },
+      "cdp-ws-url": {
+        type: "string",
+        default: "",
       },
       token: {
         type: "string",
@@ -105,6 +116,7 @@ Options:
   -p, --port <port>          HTTP server port (default: ${DAEMON_PORT})
       --cdp-host <host>      Chrome CDP host (default: 127.0.0.1)
       --cdp-port <port>      Chrome CDP port (default: ${DEFAULT_CDP_PORT})
+      --cdp-ws-url <url>     Browser-level CDP WebSocket URL
       --token <token>        Bearer auth token (auto-generated if empty)
       --hub <url>            Pinix Hub gRPC URL (enables Hub mode)
       --hub-token <token>    Pinix Hub auth token
@@ -147,6 +159,7 @@ Hub mode:
     port: parseInt(values.port ?? String(DAEMON_PORT), 10),
     cdpHost: values["cdp-host"] ?? "127.0.0.1",
     cdpPort: parseInt(values["cdp-port"] ?? String(DEFAULT_CDP_PORT), 10),
+    cdpWsUrl: values["cdp-ws-url"]?.trim() || undefined,
     token,
     hubUrl,
     hubToken: values["hub-token"]?.trim() || undefined,
@@ -165,6 +178,7 @@ interface DaemonInfo {
   token: string;
   cdpHost: string;
   cdpPort: number;
+  cdpWsUrl?: string;
 }
 
 function writeDaemonJson(info: DaemonInfo): void {
@@ -186,7 +200,71 @@ function cleanupDaemonJson(): void {
 // CDP port discovery (simplified — daemon is told the port)
 // ---------------------------------------------------------------------------
 
-async function discoverCdpPort(host: string, port: number): Promise<{ host: string; port: number }> {
+function isLocalHost(host: string): boolean {
+  return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
+}
+
+function defaultDevToolsActivePortFiles(): string[] {
+  if (process.env.BB_BROWSER_DEVTOOLS_ACTIVE_PORT_FILE) {
+    return [process.env.BB_BROWSER_DEVTOOLS_ACTIVE_PORT_FILE];
+  }
+
+  const home = os.homedir();
+  if (process.platform === "darwin") {
+    return [
+      path.join(home, "Library/Application Support/Google/Chrome/DevToolsActivePort"),
+      path.join(home, "Library/Application Support/Google/Chrome Beta/DevToolsActivePort"),
+      path.join(home, "Library/Application Support/Google/Chrome Canary/DevToolsActivePort"),
+      path.join(home, "Library/Application Support/Microsoft Edge/DevToolsActivePort"),
+      path.join(home, "Library/Application Support/BraveSoftware/Brave-Browser/DevToolsActivePort"),
+    ];
+  }
+
+  if (process.platform === "win32") {
+    const localAppData = process.env.LOCALAPPDATA ?? "";
+    return [
+      path.join(localAppData, "Google/Chrome/User Data/DevToolsActivePort"),
+      path.join(localAppData, "Microsoft/Edge/User Data/DevToolsActivePort"),
+      path.join(localAppData, "BraveSoftware/Brave-Browser/User Data/DevToolsActivePort"),
+    ].filter((file) => !file.startsWith(path.sep));
+  }
+
+  return [
+    path.join(home, ".config/google-chrome/DevToolsActivePort"),
+    path.join(home, ".config/chromium/DevToolsActivePort"),
+    path.join(home, ".config/microsoft-edge/DevToolsActivePort"),
+    path.join(home, ".config/BraveSoftware/Brave-Browser/DevToolsActivePort"),
+  ];
+}
+
+function tryDevToolsActivePort(host: string, port: number): CdpEndpoint | null {
+  if (!isLocalHost(host)) return null;
+
+  for (const file of defaultDevToolsActivePortFiles()) {
+    try {
+      const [rawPort, rawPath] = readFileSync(file, "utf8").trim().split(/\r?\n/);
+      const activePort = parseInt(rawPort ?? "", 10);
+      const browserPath = rawPath?.trim();
+      if (activePort !== port || !browserPath?.startsWith("/devtools/browser")) {
+        continue;
+      }
+
+      return {
+        host,
+        port,
+        browserWebSocketUrl: `ws://${host}:${port}${browserPath}`,
+      };
+    } catch {}
+  }
+
+  return null;
+}
+
+async function discoverCdpPort(host: string, port: number, browserWebSocketUrl?: string): Promise<CdpEndpoint> {
+  if (browserWebSocketUrl) {
+    return { host, port, browserWebSocketUrl };
+  }
+
   // Try connecting to the specified port first
   try {
     const controller = new AbortController();
@@ -202,6 +280,11 @@ async function discoverCdpPort(host: string, port: number): Promise<{ host: stri
       clearTimeout(timer);
     }
   } catch {}
+
+  const activePortEndpoint = tryDevToolsActivePort(host, port);
+  if (activePortEndpoint) {
+    return activePortEndpoint;
+  }
 
   // Try reading managed browser port file
   const managedPortFile = path.join(DAEMON_DIR, "browser", "cdp-port");
@@ -223,6 +306,10 @@ async function discoverCdpPort(host: string, port: number): Promise<{ host: stri
           clearTimeout(timer);
         }
       } catch {}
+      const managedActivePortEndpoint = tryDevToolsActivePort("127.0.0.1", managedPort);
+      if (managedActivePortEndpoint) {
+        return managedActivePortEndpoint;
+      }
     }
   } catch {}
 
@@ -333,7 +420,7 @@ async function main(): Promise<void> {
   // Auto-manage Chrome headless-shell (unless --no-chrome)
   let chromeProcess: ChildProcess | null = null;
 
-  if (!options.noChrome) {
+  if (!options.noChrome && !options.cdpWsUrl) {
     const chrome = createChromeManager();
 
     // Ensure headless-shell binary is available (download if needed)
@@ -371,10 +458,10 @@ async function main(): Promise<void> {
 
   // Create tab state manager and CDP connection
   const tabManager = new TabStateManager();
-  let cdpEndpoint: { host: string; port: number };
+  let cdpEndpoint: CdpEndpoint;
 
   try {
-    cdpEndpoint = await discoverCdpPort(options.cdpHost, options.cdpPort);
+    cdpEndpoint = await discoverCdpPort(options.cdpHost, options.cdpPort, options.cdpWsUrl);
   } catch (error) {
     console.error(
       `[Daemon] ${error instanceof Error ? error.message : String(error)}`,
@@ -382,7 +469,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const cdp = new CdpConnection(cdpEndpoint.host, cdpEndpoint.port, tabManager);
+  const cdp = new CdpConnection(cdpEndpoint.host, cdpEndpoint.port, tabManager, cdpEndpoint.browserWebSocketUrl);
 
   // Hub bridge (created after CDP, started after CDP connects)
   let hubBridge: HubBridge | null = null;
@@ -430,6 +517,7 @@ async function main(): Promise<void> {
     token: options.token,
     cdpHost: cdpEndpoint.host,
     cdpPort: cdpEndpoint.port,
+    cdpWsUrl: cdpEndpoint.browserWebSocketUrl,
   });
 
   console.error(
