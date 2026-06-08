@@ -15,11 +15,12 @@
 
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { spawn, execSync } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { readFileSync, writeFileSync, unlinkSync, mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import http from "node:http";
+import { WebSocketServer } from "ws";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -31,6 +32,7 @@ mkdirSync(DAEMON_DIR, { recursive: true });
 process.env.BB_BROWSER_HOME = DAEMON_DIR;
 const DAEMON_JSON = path.join(DAEMON_DIR, "daemon.json");
 const MANAGED_PORT_FILE = path.join(DAEMON_DIR, "browser", "cdp-port");
+const DEVTOOLS_ACTIVE_PORT_FILE = path.join(DAEMON_DIR, "DevToolsActivePort");
 const DAEMON_ENTRY = path.resolve(
   import.meta.dirname,
   "../../../daemon/src/index.ts",
@@ -58,6 +60,10 @@ function cleanupDaemonJson(): void {
 
 function cleanupManagedPortFile(): void {
   try { unlinkSync(MANAGED_PORT_FILE); } catch {}
+}
+
+function cleanupDevToolsActivePortFile(): void {
+  try { unlinkSync(DEVTOOLS_ACTIVE_PORT_FILE); } catch {}
 }
 
 /** Wait for daemon.json to appear (or timeout) */
@@ -101,6 +107,75 @@ function startFakeCdpServer(port: number): Promise<http.Server> {
   });
 }
 
+function startFakeBrowserWebSocket(port: number): Promise<WebSocketServer> {
+  return new Promise((resolve, reject) => {
+    const wss = new WebSocketServer({
+      host: "127.0.0.1",
+      port,
+      path: "/devtools/browser/fake",
+    });
+    wss.on("connection", (socket) => {
+      socket.on("message", (raw) => {
+        const message = JSON.parse(String(raw)) as { id?: number; method?: string };
+        if (!message.id) return;
+        const result = message.method === "Target.getTargets" ? { targetInfos: [] } : {};
+        socket.send(JSON.stringify({ id: message.id, result }));
+      });
+    });
+    wss.on("error", reject);
+    wss.on("listening", () => resolve(wss));
+  });
+}
+
+function waitForStatus(
+  host: string,
+  port: number,
+  token: string,
+  predicate: (status: Record<string, unknown>) => boolean,
+  timeoutMs = 8000,
+): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + timeoutMs;
+  return new Promise((resolve, reject) => {
+    const tick = async () => {
+      try {
+        const status = await new Promise<Record<string, unknown>>((innerResolve, innerReject) => {
+          const req = http.request({
+            hostname: host,
+            port,
+            path: "/status",
+            method: "GET",
+            headers: { Authorization: `Bearer ${token}` },
+            timeout: 1000,
+          }, res => {
+            const chunks: Buffer[] = [];
+            res.on("data", (c: Buffer) => chunks.push(c));
+            res.on("end", () => {
+              try {
+                innerResolve(JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>);
+              } catch (e) {
+                innerReject(e);
+              }
+            });
+          });
+          req.on("error", innerReject);
+          req.end();
+        });
+        if (predicate(status)) {
+          resolve(status);
+          return;
+        }
+      } catch {}
+
+      if (Date.now() >= deadline) {
+        reject(new Error("status predicate not met in time"));
+        return;
+      }
+      setTimeout(tick, 200);
+    };
+    tick();
+  });
+}
+
 function killProcess(pid: number): void {
   try { process.kill(pid, "SIGTERM"); } catch {}
 }
@@ -117,6 +192,7 @@ describe("daemon startup without Chrome", () => {
   beforeEach(() => {
     cleanupDaemonJson();
     cleanupManagedPortFile();
+    cleanupDevToolsActivePortFile();
   });
 
   it("daemon exits with error when no CDP is available", async () => {
@@ -176,6 +252,7 @@ describe("daemon startup with CDP available", () => {
     }
     daemonPid = null;
     cleanupDaemonJson();
+    cleanupDevToolsActivePortFile();
     if (fakeCdp) {
       await new Promise<void>(resolve => fakeCdp!.close(() => resolve()));
       fakeCdp = null;
@@ -250,6 +327,39 @@ describe("daemon startup with CDP available", () => {
 
     assert.equal(status.running, true, "/status should report running");
   });
+
+  it("daemon connects via DevToolsActivePort browser WebSocket when /json/version is unavailable", async () => {
+    const wsPort = 39987;
+    const daemonPort = 39986;
+    const browserWs = await startFakeBrowserWebSocket(wsPort);
+    writeFileSync(DEVTOOLS_ACTIVE_PORT_FILE, `${wsPort}\n/devtools/browser/fake\n`);
+
+    try {
+      const child = spawn(TSX, [
+        DAEMON_ENTRY,
+        "--cdp-port", String(wsPort),
+        "--port", String(daemonPort),
+        "--no-chrome",
+      ], {
+        detached: true,
+        stdio: "ignore",
+        env: {
+          ...process.env,
+          BB_BROWSER_DEVTOOLS_ACTIVE_PORT_FILE: DEVTOOLS_ACTIVE_PORT_FILE,
+        },
+      });
+      child.unref();
+
+      const info = await waitForDaemonJson();
+      daemonPid = info.pid;
+
+      assert.equal((info as Record<string, unknown>).cdpWsUrl, `ws://127.0.0.1:${wsPort}/devtools/browser/fake`);
+      const status = await waitForStatus(info.host, info.port, info.token, (s) => s.cdpConnected === true);
+      assert.equal(status.cdpConnected, true);
+    } finally {
+      browserWs.close();
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -285,7 +395,7 @@ describe("ensureDaemon passes CDP info to daemon", () => {
 
   it("daemon discovers CDP via managed port file", async () => {
     // Daemon should read ~/.bb-browser/browser/cdp-port and find our fake CDP
-    const child = spawn(TSX, [DAEMON_ENTRY, "--port", "39993"], {
+    const child = spawn(TSX, [DAEMON_ENTRY, "--port", "39993", "--no-chrome"], {
       detached: true,
       stdio: "ignore",
     });

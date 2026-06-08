@@ -92,8 +92,8 @@ export async function ensureDaemon(): Promise<void> {
     );
   }
 
-  // If existing daemon has wrong CDP port, stop it and respawn
-  if (info && info.cdpPort !== cdpInfo.port) {
+  // If existing daemon has wrong CDP endpoint, stop it and respawn
+  if (info && (info.cdpPort !== cdpInfo.port || info.cdpWsUrl !== cdpInfo.browserWebSocketUrl)) {
     await stopDaemon();
     info = null;
     // Fall through to spawn new daemon
@@ -122,6 +122,9 @@ export async function ensureDaemon(): Promise<void> {
   // Spawn daemon process with discovered CDP endpoint
   const daemonPath = getDaemonPath();
   const daemonArgs = [daemonPath, "--cdp-host", cdpInfo.host, "--cdp-port", String(cdpInfo.port)];
+  if (cdpInfo.browserWebSocketUrl) {
+    daemonArgs.push("--cdp-ws-url", cdpInfo.browserWebSocketUrl);
+  }
 
   // Forward --hub flags from environment variables
   const hubUrl = process.env.BB_BROWSER_HUB_URL || process.env.PINIX_HUB_URL;

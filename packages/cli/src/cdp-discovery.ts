@@ -12,6 +12,12 @@ const MANAGED_PORT_FILE = path.join(MANAGED_BROWSER_DIR, "cdp-port");
 const CDP_CACHE_FILE = path.join(os.tmpdir(), "bb-browser-cdp-cache.json");
 const CACHE_TTL_MS = 30000; // 缓存有效期 30 秒
 
+export interface CdpEndpoint {
+  host: string;
+  port: number;
+  browserWebSocketUrl?: string;
+}
+
 function execFileAsync(command: string, args: string[], timeout: number): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(command, args, { encoding: "utf8", timeout }, (error, stdout) => {
@@ -30,12 +36,12 @@ function getArgValue(flag: string): string | undefined {
   return process.argv[index + 1];
 }
 
-async function tryOpenClaw(): Promise<{ host: string; port: number } | null> {
+async function tryOpenClaw(): Promise<CdpEndpoint | null> {
   try {
     const raw = await execFileAsync("npx", ["openclaw", "browser", "status", "--json"], 30000);
     const parsed = parseOpenClawJson<{ cdpUrl?: string; cdpHost?: string; cdpPort?: number | string }>(raw);
 
-    let result: { host: string; port: number } | null = null;
+    let result: CdpEndpoint | null = null;
 
     // 优先使用完整的 cdpUrl
     if (parsed?.cdpUrl) {
@@ -82,6 +88,66 @@ async function canConnect(host: string, port: number): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function isLocalHost(host: string): boolean {
+  return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
+}
+
+function defaultDevToolsActivePortFiles(): string[] {
+  if (process.env.BB_BROWSER_DEVTOOLS_ACTIVE_PORT_FILE) {
+    return [process.env.BB_BROWSER_DEVTOOLS_ACTIVE_PORT_FILE];
+  }
+
+  const home = os.homedir();
+  if (process.platform === "darwin") {
+    return [
+      path.join(home, "Library/Application Support/Google/Chrome/DevToolsActivePort"),
+      path.join(home, "Library/Application Support/Google/Chrome Beta/DevToolsActivePort"),
+      path.join(home, "Library/Application Support/Google/Chrome Canary/DevToolsActivePort"),
+      path.join(home, "Library/Application Support/Microsoft Edge/DevToolsActivePort"),
+      path.join(home, "Library/Application Support/BraveSoftware/Brave-Browser/DevToolsActivePort"),
+    ];
+  }
+
+  if (process.platform === "win32") {
+    const localAppData = process.env.LOCALAPPDATA ?? "";
+    return [
+      path.join(localAppData, "Google/Chrome/User Data/DevToolsActivePort"),
+      path.join(localAppData, "Microsoft/Edge/User Data/DevToolsActivePort"),
+      path.join(localAppData, "BraveSoftware/Brave-Browser/User Data/DevToolsActivePort"),
+    ].filter((file) => !file.startsWith(path.sep));
+  }
+
+  return [
+    path.join(home, ".config/google-chrome/DevToolsActivePort"),
+    path.join(home, ".config/chromium/DevToolsActivePort"),
+    path.join(home, ".config/microsoft-edge/DevToolsActivePort"),
+    path.join(home, ".config/BraveSoftware/Brave-Browser/DevToolsActivePort"),
+  ];
+}
+
+async function tryDevToolsActivePort(host: string, port: number): Promise<CdpEndpoint | null> {
+  if (!isLocalHost(host)) return null;
+
+  for (const file of defaultDevToolsActivePortFiles()) {
+    try {
+      const [rawPort, rawPath] = (await readFile(file, "utf8")).trim().split(/\r?\n/);
+      const activePort = Number.parseInt(rawPort ?? "", 10);
+      const browserPath = rawPath?.trim();
+      if (activePort !== port || !browserPath?.startsWith("/devtools/browser")) {
+        continue;
+      }
+
+      return {
+        host,
+        port,
+        browserWebSocketUrl: `ws://${host}:${port}${browserPath}`,
+      };
+    } catch {}
+  }
+
+  return null;
 }
 
 export function findBrowserExecutable(): string | null {
@@ -145,7 +211,7 @@ export async function isManagedBrowserRunning(): Promise<boolean> {
   }
 }
 
-export async function launchManagedBrowser(port: number = DEFAULT_CDP_PORT): Promise<{ host: string; port: number } | null> {
+export async function launchManagedBrowser(port: number = DEFAULT_CDP_PORT): Promise<CdpEndpoint | null> {
   const executable = findBrowserExecutable();
   if (!executable) {
     return null;
@@ -205,15 +271,22 @@ export async function launchManagedBrowser(port: number = DEFAULT_CDP_PORT): Pro
   return null;
 }
 
-export async function discoverCdpPort(): Promise<{ host: string; port: number } | null> {
+export async function discoverCdpPort(): Promise<CdpEndpoint | null> {
   // 优先级1: 环境变量 BB_BROWSER_CDP_URL（最快，零延迟）
   const envUrl = process.env.BB_BROWSER_CDP_URL;
   if (envUrl) {
     try {
       const url = new URL(envUrl);
       const port = Number(url.port);
+      if ((url.protocol === "ws:" || url.protocol === "wss:") && Number.isInteger(port) && port > 0) {
+        return { host: url.hostname, port, browserWebSocketUrl: envUrl };
+      }
       if (Number.isInteger(port) && port > 0 && await canConnect(url.hostname, port)) {
         return { host: url.hostname, port };
+      }
+      if (Number.isInteger(port) && port > 0) {
+        const viaActivePort = await tryDevToolsActivePort(url.hostname, port);
+        if (viaActivePort) return viaActivePort;
       }
     } catch {}
   }
@@ -223,12 +296,20 @@ export async function discoverCdpPort(): Promise<{ host: string; port: number } 
   if (Number.isInteger(explicitPort) && explicitPort > 0 && await canConnect("127.0.0.1", explicitPort)) {
     return { host: "127.0.0.1", port: explicitPort };
   }
+  if (Number.isInteger(explicitPort) && explicitPort > 0) {
+    const viaActivePort = await tryDevToolsActivePort("127.0.0.1", explicitPort);
+    if (viaActivePort) return viaActivePort;
+  }
 
   try {
     const rawPort = await readFile(MANAGED_PORT_FILE, "utf8");
     const managedPort = Number.parseInt(rawPort.trim(), 10);
     if (Number.isInteger(managedPort) && managedPort > 0 && await canConnect("127.0.0.1", managedPort)) {
       return { host: "127.0.0.1", port: managedPort };
+    }
+    if (Number.isInteger(managedPort) && managedPort > 0) {
+      const viaActivePort = await tryDevToolsActivePort("127.0.0.1", managedPort);
+      if (viaActivePort) return viaActivePort;
     }
   } catch {
   }
