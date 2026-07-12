@@ -3,6 +3,7 @@ import { parseOpenClawJson } from "./openclaw-json.js";
 
 const OPENCLAW_EVALUATE_TIMEOUT_MS = 120000;
 const EXEC_TIMEOUT_BUFFER_MS = 5000;
+const OPENCLAW_PAGE_LOAD_TIMEOUT_MS = 30000;
 
 export interface OCTab {
   targetId: string;
@@ -80,10 +81,38 @@ export function ocFocus(tabReference: string): void {
   runOpenClaw(["focus", tabReference], 15000);
 }
 
+export function isOpenClawNavigationError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const processError = error as Error & { stdout?: string | Buffer; stderr?: string | Buffer };
+  const output = [processError.message, processError.stdout, processError.stderr]
+    .filter((part) => part !== undefined)
+    .map((part) => String(part))
+    .join("\n");
+  return /execution context was destroyed[^\n]*navigation/i.test(output);
+}
+
+function evaluateFocusedTab(fn: string): unknown {
+  const raw = runOpenClaw(["evaluate", "--fn", fn], OPENCLAW_EVALUATE_TIMEOUT_MS);
+  return parseOpenClawJson(raw);
+}
+
 export function ocEvaluate(tabReference: string, fn: string): unknown {
   // Some OpenClaw releases do not expose evaluate --target-id. Focusing first
   // works with stable tab ids/labels as well as legacy raw target ids.
   ocFocus(tabReference);
-  const raw = runOpenClaw(["evaluate", "--fn", fn], OPENCLAW_EVALUATE_TIMEOUT_MS);
-  return parseOpenClawJson(raw);
+  try {
+    return evaluateFocusedTab(fn);
+  } catch (error) {
+    if (!isOpenClawNavigationError(error)) throw error;
+
+    // Adapters may navigate by assigning location.href. That necessarily
+    // destroys the current evaluate context, so wait for the replacement page
+    // and run the adapter once more on the stable tab reference.
+    ocFocus(tabReference);
+    runOpenClaw(
+      ["wait", "--load", "domcontentloaded", "--timeout-ms", String(OPENCLAW_PAGE_LOAD_TIMEOUT_MS)],
+      OPENCLAW_PAGE_LOAD_TIMEOUT_MS + EXEC_TIMEOUT_BUFFER_MS,
+    );
+    return evaluateFocusedTab(fn);
+  }
 }

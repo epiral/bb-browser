@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildOpenClawArgs, getOpenClawExecTimeout, ocGetTabReference } from "./openclaw-bridge.js";
+import {
+  buildOpenClawArgs,
+  getOpenClawExecTimeout,
+  isOpenClawNavigationError,
+  ocGetTabReference,
+} from "./openclaw-bridge.js";
 
 test("places browser-level flags before subcommand", () => {
   assert.deepEqual(buildOpenClawArgs(["status", "--json"], 5000), [
@@ -31,6 +36,16 @@ test("prefers stable OpenClaw tab references", () => {
   assert.equal(ocGetTabReference({ ...base, tabId: "t1", label: "example" }), "t1");
   assert.equal(ocGetTabReference({ ...base, label: "example" }), "example");
   assert.equal(ocGetTabReference(base), "raw123");
+});
+
+test("detects evaluate interruption caused by page navigation", () => {
+  assert.equal(isOpenClawNavigationError(new Error(
+    "page.evaluate: Execution context was destroyed, most likely because of a navigation.",
+  )), true);
+  assert.equal(isOpenClawNavigationError(Object.assign(new Error("Command failed"), {
+    stderr: Buffer.from("Execution context was destroyed, most likely because of a navigation"),
+  })), true);
+  assert.equal(isOpenClawNavigationError(new Error("page.evaluate: ReferenceError: feedContainer is not defined")), false);
 });
 
 test("adds a small buffer to the exec timeout", () => {
