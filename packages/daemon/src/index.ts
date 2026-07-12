@@ -32,6 +32,20 @@ const DAEMON_DIR = process.env.BB_BROWSER_HOME || path.join(os.homedir(), ".bb-b
 const DAEMON_JSON = path.join(DAEMON_DIR, "daemon.json");
 const DEFAULT_CDP_PORT = 9222;
 
+function getEnvCdpEndpoint(): { host: string; port: number } | null {
+  const raw = process.env.BB_BROWSER_CDP_URL?.trim();
+  if (!raw) return null;
+
+  try {
+    const url = new URL(raw);
+    const port = Number(url.port);
+    if (!url.hostname || !Number.isInteger(port) || port <= 0 || port > 65535) return null;
+    return { host: url.hostname, port };
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // CLI argument parsing
 // ---------------------------------------------------------------------------
@@ -48,6 +62,7 @@ interface DaemonOptions {
 }
 
 function parseOptions(): DaemonOptions {
+  const envCdp = getEnvCdpEndpoint();
   const { values } = parseArgs({
     allowPositionals: true,
     options: {
@@ -63,11 +78,11 @@ function parseOptions(): DaemonOptions {
       },
       "cdp-host": {
         type: "string",
-        default: "127.0.0.1",
+        default: envCdp?.host ?? "127.0.0.1",
       },
       "cdp-port": {
         type: "string",
-        default: String(DEFAULT_CDP_PORT),
+        default: String(envCdp?.port ?? DEFAULT_CDP_PORT),
       },
       token: {
         type: "string",
@@ -110,6 +125,9 @@ Options:
       --hub-token <token>    Pinix Hub auth token
       --no-chrome            Skip auto Chrome management (use external Chrome)
   -h, --help                 Show this help message
+
+Environment:
+  BB_BROWSER_CDP_URL         Chrome CDP endpoint (for example http://127.0.0.1:18800)
 
 Endpoints:
   POST /command      Send command and get result (via CDP)

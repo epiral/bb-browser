@@ -6,6 +6,9 @@ const EXEC_TIMEOUT_BUFFER_MS = 5000;
 
 export interface OCTab {
   targetId: string;
+  suggestedTargetId?: string;
+  tabId?: string;
+  label?: string;
   url: string;
   title: string;
   type: string;
@@ -61,11 +64,26 @@ export function ocFindTabByDomain(tabs: OCTab[], domain: string): OCTab | undefi
 
 export function ocOpenTab(url: string): string {
   const raw = runOpenClaw(["open", url, "--json"], 30000);
-  const data = parseOpenClawJson<{ id?: string; targetId?: string }>(raw);
-  return data.id || data.targetId;
+  const data = parseOpenClawJson<{ suggestedTargetId?: string; tabId?: string; id?: string; targetId?: string }>(raw);
+  const tabReference = data.suggestedTargetId || data.tabId || data.id || data.targetId;
+  if (!tabReference) {
+    throw new Error("OpenClaw did not return a tab reference after opening the URL");
+  }
+  return tabReference;
 }
 
-export function ocEvaluate(targetId: string, fn: string): unknown {
-  const raw = runOpenClaw(["evaluate", "--fn", fn, "--target-id", targetId], OPENCLAW_EVALUATE_TIMEOUT_MS);
+export function ocGetTabReference(tab: OCTab): string {
+  return tab.suggestedTargetId || tab.tabId || tab.label || tab.targetId;
+}
+
+export function ocFocus(tabReference: string): void {
+  runOpenClaw(["focus", tabReference], 15000);
+}
+
+export function ocEvaluate(tabReference: string, fn: string): unknown {
+  // Some OpenClaw releases do not expose evaluate --target-id. Focusing first
+  // works with stable tab ids/labels as well as legacy raw target ids.
+  ocFocus(tabReference);
+  const raw = runOpenClaw(["evaluate", "--fn", fn], OPENCLAW_EVALUATE_TIMEOUT_MS);
   return parseOpenClawJson(raw);
 }

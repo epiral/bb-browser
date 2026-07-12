@@ -91,6 +91,15 @@ function spawnDaemon(port: number, cdpPort: number): ChildProcess {
   );
 }
 
+function spawnDaemonWithEnvCdp(port: number, cdpUrl: string): ChildProcess {
+  const sourceEntry = path.resolve(__dirname, "../index.ts");
+  return spawn(
+    findTsx(),
+    [sourceEntry, "--port", String(port), "--no-chrome"],
+    { stdio: "pipe", env: { ...process.env, BB_BROWSER_CDP_URL: cdpUrl } },
+  );
+}
+
 async function waitForDaemonJson(timeoutMs = 8000): Promise<Record<string, unknown>> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -182,6 +191,18 @@ describe("daemon lifecycle (no Chrome needed)", () => {
     assert.ok((info.token as string).length > 0);
     // Note: daemon.pid is tsx wrapper PID, info.pid is the actual daemon PID
     assert.ok(info.pid as number > 0, "daemon PID should be positive");
+  });
+
+  it("uses BB_BROWSER_CDP_URL when explicit CDP flags are absent", async () => {
+    const { daemonPort, cdpPort } = nextPorts();
+    await cleanupDaemonJson();
+    fakeCdp = await startFakeCdp(cdpPort);
+    daemon = spawnDaemonWithEnvCdp(daemonPort, `http://127.0.0.1:${cdpPort}`);
+
+    const info = await waitForDaemonJson();
+
+    assert.equal(info.cdpHost, "127.0.0.1");
+    assert.equal(info.cdpPort, cdpPort);
   });
 
   it("GET /status returns running: true", async () => {
