@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildOpenClawArgs, getOpenClawExecTimeout } from "./openclaw-bridge.js";
+import {
+  buildOpenClawArgs,
+  getOpenClawExecTimeout,
+  isOpenClawNavigationError,
+  ocGetTabReference,
+} from "./openclaw-bridge.js";
 
 test("places browser-level flags before subcommand", () => {
   assert.deepEqual(buildOpenClawArgs(["status", "--json"], 5000), [
@@ -13,8 +18,8 @@ test("places browser-level flags before subcommand", () => {
   ]);
 });
 
-test("preserves subcommand flags and values after subcommand", () => {
-  assert.deepEqual(buildOpenClawArgs(["evaluate", "--fn", "() => document.title", "--target-id", "abc123"], 120000), [
+test("builds evaluate without relying on target-id", () => {
+  assert.deepEqual(buildOpenClawArgs(["evaluate", "--fn", "() => document.title"], 120000), [
     "openclaw",
     "browser",
     "--timeout",
@@ -22,9 +27,25 @@ test("preserves subcommand flags and values after subcommand", () => {
     "evaluate",
     "--fn",
     "() => document.title",
-    "--target-id",
-    "abc123",
   ]);
+});
+
+test("prefers stable OpenClaw tab references", () => {
+  const base = { targetId: "raw123", url: "https://example.com", title: "Example", type: "page" };
+  assert.equal(ocGetTabReference({ ...base, suggestedTargetId: "docs", tabId: "t1", label: "example" }), "docs");
+  assert.equal(ocGetTabReference({ ...base, tabId: "t1", label: "example" }), "t1");
+  assert.equal(ocGetTabReference({ ...base, label: "example" }), "example");
+  assert.equal(ocGetTabReference(base), "raw123");
+});
+
+test("detects evaluate interruption caused by page navigation", () => {
+  assert.equal(isOpenClawNavigationError(new Error(
+    "page.evaluate: Execution context was destroyed, most likely because of a navigation.",
+  )), true);
+  assert.equal(isOpenClawNavigationError(Object.assign(new Error("Command failed"), {
+    stderr: Buffer.from("Execution context was destroyed, most likely because of a navigation"),
+  })), true);
+  assert.equal(isOpenClawNavigationError(new Error("page.evaluate: ReferenceError: feedContainer is not defined")), false);
 });
 
 test("adds a small buffer to the exec timeout", () => {

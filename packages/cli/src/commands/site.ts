@@ -211,15 +211,6 @@ function getAllSites(): SiteMeta[] {
   return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/**
- * Find a site adapter JS file locally by name (for openclaw fallback).
- */
-function findLocalSiteFile(name: string): string | null {
-  const sites = getAllSites();
-  const site = sites.find(s => s.name === name);
-  return site?.filePath ?? null;
-}
-
 // ── 子命令 ──────────────────────────────────────────────────────
 
 async function siteList(options: SiteOptions): Promise<void> {
@@ -516,12 +507,8 @@ async function siteRun(
 ): Promise<void> {
   // OpenClaw path — alternative execution, kept in CLI
   if (options.openclaw) {
-    // Need site meta for openclaw path — fetch from daemon
-    const infoResp: Response = await sendCommand({
-      method: "site_info",
-      siteName: name,
-    } as Request);
-    const site = infoResp.result ? (infoResp.result as any) : null;
+    // Keep this path daemon-free: metadata and adapter source are both local.
+    const site = getAllSites().find((candidate) => candidate.name === name);
     if (!site) {
       if (options.json) {
         exitJsonError(`site "${name}" not found`, { action: "bb-browser site list" });
@@ -555,26 +542,21 @@ async function siteRun(
 
     // Fetch JS content from daemon is not feasible, so read locally for openclaw
     // This is a CLI-only fallback path
-    const siteJsPath = findLocalSiteFile(name);
-    if (!siteJsPath) {
-      exitJsonError(`Cannot find JS file for "${name}" locally (openclaw requires local files)`);
-    }
-
-    const jsContent = readFileSync(siteJsPath, "utf-8");
+    const jsContent = readFileSync(site.filePath, "utf-8");
     const jsBody = jsContent.replace(/\/\*\s*@meta[\s\S]*?\*\//, "").trim();
     const argsJson = JSON.stringify(argMap);
 
-    const { ocGetTabs, ocFindTabByDomain, ocOpenTab, ocEvaluate } = await import("../openclaw-bridge.js");
+    const { ocGetTabs, ocFindTabByDomain, ocOpenTab, ocGetTabReference, ocEvaluate } = await import("../openclaw-bridge.js");
 
-    let targetId: string;
+    let tabReference: string;
 
     if (site.domain) {
       const tabs = ocGetTabs();
       const existing = ocFindTabByDomain(tabs, site.domain);
       if (existing) {
-        targetId = existing.targetId;
+        tabReference = ocGetTabReference(existing);
       } else {
-        targetId = ocOpenTab(`https://${site.domain}`);
+        tabReference = ocOpenTab(`https://${site.domain}`);
         await new Promise((resolve) => setTimeout(resolve, 3000));
       }
     } else {
@@ -582,11 +564,11 @@ async function siteRun(
       if (tabs.length === 0) {
         throw new Error("No tabs open in OpenClaw browser");
       }
-      targetId = tabs[0].targetId;
+      tabReference = ocGetTabReference(tabs[0]);
     }
 
     const wrappedFn = `async () => { const __fn = ${jsBody}; return await __fn(${argsJson}); }`;
-    const parsed = ocEvaluate(targetId, wrappedFn);
+    const parsed = ocEvaluate(tabReference, wrappedFn);
 
     if (typeof parsed === "object" && parsed !== null && "error" in parsed) {
       const errObj = parsed as { error: string; hint?: string };
