@@ -546,10 +546,11 @@ async function resolveTabByDomain(
     }
   }
 
-  // No matching tab — create one and wait for initial load
+  // No matching tab — create one (in the background: never steal the user's
+  // active tab) and wait for initial load
   const created = await cdp.browserCommand<{ targetId: string }>(
     "Target.createTarget",
-    { url: `https://${domain}` },
+    { url: `https://${domain}`, background: true },
   );
   await cdp.attachAndEnable(created.targetId);
 
