@@ -234,11 +234,12 @@ export async function executeSiteAdapter(
       }
     }
 
-    // No matching tab found — create one
+    // No matching tab found — create one in the BACKGROUND so the user's
+    // currently active tab is not switched away from.
     if (!targetId) {
       const created = await cdp.browserCommand<{ targetId: string }>(
         "Target.createTarget",
-        { url: `https://${site.domain}` },
+        { url: `https://${site.domain}`, background: true },
       );
       await cdp.attachAndEnable(created.targetId);
       targetId = created.targetId;
