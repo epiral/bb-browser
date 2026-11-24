@@ -660,6 +660,8 @@ async function main(): Promise<void> {
           days: parsed.flags.days,
           tabId: globalTabId,
           openclaw: parsed.flags.openclaw,
+          // adapter 自己的 --flag 会被全局 parseArgs 丢弃，这里透传原始 argv
+          rawArgs: process.argv.slice(2),
         });
         break;
       }
