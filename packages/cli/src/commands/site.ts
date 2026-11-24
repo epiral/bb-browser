@@ -20,6 +20,7 @@
 import type { Request, Response } from "@bb-browser/shared";
 import { handleJqResponse, sendCommand } from "../client.js";
 import { getHistoryDomains } from "../history-sqlite.js";
+import { parseFlagPairs, parseSiteArgs, sliceAfter } from "../site-args.js";
 import { readFileSync, readdirSync, existsSync, mkdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { homedir } from "node:os";
@@ -46,6 +47,8 @@ export interface SiteOptions {
   days?: number;
   jq?: string;
   openclaw?: boolean;
+  /** 原始 argv（不含 node 与脚本路径）。全局 parseArgs 会丢弃未识别的 --flag，adapter 参数必须从这里取 */
+  rawArgs?: string[];
 }
 
 /** Adapter 参数定义 */
@@ -532,26 +535,7 @@ async function siteRun(
     }
 
     // Parse args for openclaw (need arg names from site meta)
-    const argNames = Object.keys(site.args || {});
-    const argMap: Record<string, string> = {};
-    const positionalArgs: string[] = [];
-    for (let i = 0; i < args.length; i++) {
-      if (args[i].startsWith("--")) {
-        const flagName = args[i].slice(2);
-        if (flagName in (site.args || {}) && args[i + 1]) {
-          argMap[flagName] = args[i + 1];
-          i++;
-        }
-      } else {
-        positionalArgs.push(args[i]);
-      }
-    }
-    let posIdx = 0;
-    for (const argName of argNames) {
-      if (!argMap[argName] && posIdx < positionalArgs.length) {
-        argMap[argName] = positionalArgs[posIdx++];
-      }
-    }
+    const argMap = parseSiteArgs(args, site.args || {});
 
     // Fetch JS content from daemon is not feasible, so read locally for openclaw
     // This is a CLI-only fallback path
@@ -638,36 +622,10 @@ async function siteRun(
 
   if (infoResp.result) {
     const site = infoResp.result as any;
-    const argNames = Object.keys(site.args || {});
-
-    const positionalArgs: string[] = [];
-    for (let i = 0; i < args.length; i++) {
-      if (args[i].startsWith("--")) {
-        const flagName = args[i].slice(2);
-        if (flagName in (site.args || {}) && args[i + 1]) {
-          argMap[flagName] = args[i + 1];
-          i++;
-        }
-      } else {
-        positionalArgs.push(args[i]);
-      }
-    }
-
-    let posIdx = 0;
-    for (const argName of argNames) {
-      if (!argMap[argName] && posIdx < positionalArgs.length) {
-        argMap[argName] = positionalArgs[posIdx++];
-      }
-    }
+    Object.assign(argMap, parseSiteArgs(args, site.args || {}));
   } else {
     // Site not found — still try sending to daemon (it will produce a proper error)
-    // Parse args as simple --key value pairs
-    for (let i = 0; i < args.length; i++) {
-      if (args[i].startsWith("--") && args[i + 1]) {
-        argMap[args[i].slice(2)] = args[i + 1];
-        i++;
-      }
-    }
+    Object.assign(argMap, parseFlagPairs(args));
   }
 
   // Send site_run to daemon
@@ -809,11 +767,11 @@ export async function siteCommand(
         console.error("  Try: bb-browser site list");
         process.exit(1);
       }
-      await siteRun(args[1], args.slice(2), options);
+      await siteRun(args[1], sliceAfter(options.rawArgs, args[1]) ?? args.slice(2), options);
       break;
     default:
       if (subCommand.includes("/")) {
-        await siteRun(subCommand, args.slice(1), options);
+        await siteRun(subCommand, sliceAfter(options.rawArgs, subCommand) ?? args.slice(1), options);
       } else {
         console.error(`[error] site: unknown subcommand "${subCommand}".`);
         console.error("  Available: list, info, recommend, search, run, update");
